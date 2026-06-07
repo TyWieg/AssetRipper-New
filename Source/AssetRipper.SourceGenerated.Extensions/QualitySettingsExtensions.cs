@@ -1,4 +1,4 @@
-﻿using AssetRipper.Assets.Generics;
+using AssetRipper.Assets.Generics;
 using AssetRipper.SourceGenerated.Classes.ClassID_47;
 using AssetRipper.SourceGenerated.Enums;
 
