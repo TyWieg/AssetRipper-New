@@ -1,4 +1,4 @@
-﻿using AsmResolver.DotNet;
+using AsmResolver.DotNet;
 using AssetRipper.Import.Configuration;
 using AssetRipper.Import.Logging;
 using AssetRipper.Import.Structure.Assembly;
@@ -6,6 +6,8 @@ using AssetRipper.Import.Structure.Assembly.Managers;
 using ICSharpCode.Decompiler;
 using ICSharpCode.Decompiler.CSharp;
 using ICSharpCode.Decompiler.CSharp.ProjectDecompiler;
+using System;
+using System.IO;
 
 namespace AssetRipper.Export.UnityProjects.Scripts;
 
@@ -33,6 +35,7 @@ internal class ScriptDecompiler
 		settings.AlwaysShowEnumMemberValues = true;
 		settings.ShowXmlDocumentation = true;
 
+		settings.UseSdkStyleProjectFormat = false; // sdk style can throw and we don't use the csproj file at all
 		settings.UseNestedDirectoriesForNamespaces = true;
 
 		if (FullyQualifiedTypeNames)
