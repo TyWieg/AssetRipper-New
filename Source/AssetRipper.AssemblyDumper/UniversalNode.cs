@@ -1,29 +1,23 @@
-﻿using AssetRipper.AssemblyDumper.Utils;
+using AssetRipper.AssemblyDumper.Utils;
 using AssetRipper.IO.Files.SerializedFiles;
 using AssetRipper.Tpk.Shared;
 using AssetRipper.Tpk.TypeTrees;
-using System.Diagnostics;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 
 namespace AssetRipper.AssemblyDumper;
 
 internal sealed class UniversalNode : IEquatable<UniversalNode>, IDeepCloneable<UniversalNode>
 {
-	/// <summary>
-	/// The current type name
-	/// </summary>
 	public string TypeName { get => typeName; set => typeName = value ?? ""; }
-	/// <summary>
-	/// The original type name as obtained from the tpk file
-	/// </summary>
 	public string OriginalTypeName
 	{
 		get => string.IsNullOrEmpty(originalTypeName) ? TypeName : originalTypeName;
 		set => originalTypeName = value ?? "";
 	}
 	public string Name { get => name; set => name = value ?? ""; }
-	/// <summary>
-	/// The original name as obtained from the tpk file
-	/// </summary>
 	public string OriginalName
 	{
 		get => string.IsNullOrEmpty(originalName) ? Name : originalName;
@@ -52,7 +46,6 @@ internal sealed class UniversalNode : IEquatable<UniversalNode>, IDeepCloneable<
 				? TypeName switch
 				{
 					"bool" => NodeType.Boolean,
-					//"char" => NodeType.Character,
 					"char" => NodeType.UInt8,
 					"SInt8" => NodeType.Int8,
 					"UInt8" => NodeType.UInt8,
@@ -61,7 +54,7 @@ internal sealed class UniversalNode : IEquatable<UniversalNode>, IDeepCloneable<
 					"int" or "SInt32" or "Type*" or "EntityId" => NodeType.Int32,
 					"uint" or "UInt32" or "unsigned int" => NodeType.UInt32,
 					"SInt64" or "long long" => NodeType.Int64,
-					"UInt64" or "FileSize" or "unsigned long long" => NodeType.UInt64,//FileSize is used in StreamedResource.m_Offset 2020.1+
+					"UInt64" or "FileSize" or "unsigned long long" => NodeType.UInt64,
 					"float" => NodeType.Single,
 					"double" => NodeType.Double,
 					_ => NodeType.Type,
@@ -73,6 +66,7 @@ internal sealed class UniversalNode : IEquatable<UniversalNode>, IDeepCloneable<
 					"map" => NodeType.Map,
 					"pair" => NodeType.Pair,
 					"TypelessData" => NodeType.TypelessData,
+					"managedReference" or "managedRefArrayItem" => NodeType.ManagedReference,
 					"string" or Passes.Pass002_RenameSubnodes.Utf8StringName => NodeType.String,
 					_ => NodeType.Type,
 				};
@@ -107,7 +101,7 @@ internal sealed class UniversalNode : IEquatable<UniversalNode>, IDeepCloneable<
 
 	public static UniversalNode FromTpkUnityNode(TpkUnityNode tpkNode, TpkStringBuffer stringBuffer, TpkUnityNodeBuffer nodeBuffer)
 	{
-		UniversalNode result = new UniversalNode();
+		UniversalNode result = new();
 		result.TypeName = GetFixedTypeName(stringBuffer[tpkNode.TypeName]);
 		result.OriginalTypeName = result.TypeName;
 		result.Name = stringBuffer[tpkNode.Name];
@@ -120,14 +114,6 @@ internal sealed class UniversalNode : IEquatable<UniversalNode>, IDeepCloneable<
 		return result;
 	}
 
-	/// <summary>
-	/// Only store one name for each primitive integer size.
-	/// </summary>
-	/// <remarks>
-	/// Although this deduplicates, it also prevents these loaded type trees from being used in making new serialized files.
-	/// </remarks>
-	/// <param name="originalName"></param>
-	/// <returns></returns>
 	private static string GetFixedTypeName(string originalName)
 	{
 		return originalName switch
@@ -142,14 +128,9 @@ internal sealed class UniversalNode : IEquatable<UniversalNode>, IDeepCloneable<
 		};
 	}
 
-	/// <summary>
-	/// Deep clones a node and all its subnodes<br/>
-	/// Warning: Deep cloning a node with a circular hierarchy will cause an endless loop
-	/// </summary>
-	/// <returns>The new node</returns>
 	public UniversalNode DeepClone()
 	{
-		UniversalNode clone = new UniversalNode();
+		UniversalNode clone = new();
 		clone.TypeName = TypeName;
 		clone.originalTypeName = originalTypeName;
 		clone.Name = Name;
@@ -160,13 +141,9 @@ internal sealed class UniversalNode : IEquatable<UniversalNode>, IDeepCloneable<
 		return clone;
 	}
 
-	/// <summary>
-	/// Shallow clones a node but not its subnodes
-	/// </summary>
-	/// <returns>The new node</returns>
 	public UniversalNode ShallowClone()
 	{
-		UniversalNode clone = new UniversalNode();
+		UniversalNode clone = new();
 		clone.TypeName = TypeName;
 		clone.originalTypeName = originalTypeName;
 		clone.Name = Name;
