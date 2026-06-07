@@ -1,4 +1,4 @@
-﻿using AssetRipper.Assets.Bundles;
+using AssetRipper.Assets.Bundles;
 using AssetRipper.Import.AssetCreation;
 using AssetRipper.Import.Configuration;
 using AssetRipper.Import.Logging;
@@ -27,9 +27,6 @@ public sealed class GameStructure : IDisposable
 		PlatformStructure = platformStructure;
 		PlatformStructure?.CollectFiles(configuration.ImportSettings.IgnoreStreamingAssets);
 		MixedStructure = mixedStructure;
-		//MixedStructure?.CollectFiles(configuration.IgnoreStreamingAssets);
-		//The PlatformGameStructure constructor adds all the paths to the Assemblies and Files dictionaries
-		//No bundles or assemblies have been loaded yet
 
 		Logger.SendStatusChange("loading_step_initialize_layout");
 
@@ -65,7 +62,7 @@ public sealed class GameStructure : IDisposable
 	{
 		Logger.SendStatusChange("loading_step_create_file_collection");
 
-		GameAssetFactory assetFactory = new GameAssetFactory(AssemblyManager);
+		GameAssetFactory assetFactory = new(AssemblyManager);
 
 		IEnumerable<string> filePaths;
 		if (PlatformStructure is null || MixedStructure is null)
@@ -101,7 +98,6 @@ public sealed class GameStructure : IDisposable
 
 		try
 		{
-			//Loads any Mono or IL2Cpp assemblies
 			AssemblyManager.Initialize(PlatformStructure ?? MixedStructure ?? throw new Exception("No platform structure"));
 		}
 		catch (Exception ex)
@@ -152,7 +148,10 @@ public sealed class GameStructure : IDisposable
 			string? path = RequestAssembly(assembly);
 			if (path is null)
 			{
-				Logger.Log(LogType.Warning, LogCategory.Import, $"Assembly '{assembly}' hasn't been found");
+				if (!ImportWarningSuppressor.IsIgnorableMissingAssembly(assembly))
+				{
+					Logger.Log(LogType.Warning, LogCategory.Import, $"Assembly '{assembly}' hasn't been found");
+				}
 				return;
 			}
 			AssemblyManager.Load(path, FileSystem);
