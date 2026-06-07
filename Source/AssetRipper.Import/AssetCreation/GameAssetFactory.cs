@@ -1,8 +1,10 @@
-﻿using AssetRipper.Assets;
+using AssetRipper.Assets;
 using AssetRipper.Assets.Generics;
 using AssetRipper.Assets.IO;
 using AssetRipper.Assets.Metadata;
+using AssetRipper.Assets.Collections;
 using AssetRipper.Import.Logging;
+using AssetRipper.Import.Structure.Assembly;
 using AssetRipper.Import.Structure.Assembly.Managers;
 using AssetRipper.Import.Structure.Assembly.Serializable;
 using AssetRipper.Import.Structure.Assembly.TypeTrees;
@@ -35,6 +37,7 @@ using AssetRipper.SourceGenerated.Subclasses.Vector2Int;
 using AssetRipper.SourceGenerated.Subclasses.Vector3f;
 using AssetRipper.SourceGenerated.Subclasses.Vector3Int;
 using AssetRipper.SourceGenerated.Subclasses.Vector4f;
+using System;
 
 namespace AssetRipper.Import.AssetCreation;
 
@@ -68,31 +71,35 @@ public sealed class GameAssetFactory : AssetFactoryBase
 
 	private static IMonoBehaviour ReadMonoBehaviour(IMonoBehaviour monoBehaviour, ReadOnlyArraySegment<byte> assetData, IAssemblyManager assemblyManager, SerializedType? type)
 	{
-		EndianSpanReader reader = new EndianSpanReader(assetData, monoBehaviour.Collection.EndianType);
+		EndianSpanReader reader = new(assetData, monoBehaviour.Collection.EndianType);
 		try
 		{
 			monoBehaviour.Read(ref reader);
+			int structureDataOffset = reader.Position;
 			SerializableStructure? structure;
 			if (type is not null && TypeTreeNodeStruct.TryMakeFromTypeTree(type.OldType, out TypeTreeNodeStruct rootNode))
 			{
-				structure = SerializableTreeType.FromRootNode(rootNode, true).CreateSerializableStructure();
-				if (structure.Type.Fields.Count > 0 && structure.Type.Fields[^1] is { Type.Name: "ManagedReferencesRegistry", Name: "references" })
+				ManagedReferenceResolver resolver = new(monoBehaviour.Collection as SerializedAssetCollection, assemblyManager, monoBehaviour.Collection.Version);
+				if ((structure = SerializableTreeType.FromRootNode(rootNode, true).CreateSerializableStructure()).TryRead(ref reader, monoBehaviour, false, resolver, logFailure: false))
 				{
-					Logger.Error(LogCategory.Import, $"MonoBehaviour has a field with the [SerializeReference] attribute, which is not currently supported.");
-					monoBehaviour.Structure = null;
+					monoBehaviour.Structure = structure;
 				}
-				else if (structure.TryRead(ref reader, monoBehaviour))
+				else if (structure.CanUseLossyManagedReferenceFallback())
 				{
+					structure.ApplyLossyManagedReferenceFallbackFixups();
+					Logger.Warning(LogCategory.Import, $"Using lossy managed-reference fallback for `{monoBehaviour.ScriptP?.GetFullName()}`.");
 					monoBehaviour.Structure = structure;
 				}
 				else
 				{
 					monoBehaviour.Structure = null;
+					// Fall back to lazy assembly-based reading if the embedded type tree layout does not deserialize cleanly.
+					monoBehaviour.Structure = new UnloadedStructure(monoBehaviour, assemblyManager, assetData.Slice(structureDataOffset));
 				}
 			}
 			else
 			{
-				monoBehaviour.Structure = new UnloadedStructure(monoBehaviour, assemblyManager, assetData.Slice(reader.Position));
+				monoBehaviour.Structure = new UnloadedStructure(monoBehaviour, assemblyManager, assetData.Slice(structureDataOffset));
 			}
 		}
 		catch (Exception ex)
@@ -124,7 +131,7 @@ public sealed class GameAssetFactory : AssetFactoryBase
 		else if (assetInfo.Collection.Version.Type == UnityVersionType.Patch)
 		{
 			UnityVersion oldVersion = assetInfo.Collection.Version;
-			UnityVersion newVersion = new UnityVersion(oldVersion.Major, oldVersion.Minor, unchecked((ushort)(oldVersion.Build + 1u)));
+			UnityVersion newVersion = new(oldVersion.Major, oldVersion.Minor, unchecked((ushort)(oldVersion.Build + 1u)));
 			IUnityObjectBase newAsset = TryReadNormalObject(assetInfo, assetData, newVersion, out string? newError);
 			if (newError is null)
 			{
@@ -133,7 +140,7 @@ public sealed class GameAssetFactory : AssetFactoryBase
 		}
 
 		Logger.Error(LogCategory.Import, error);
-		UnreadableObject unreadable = new UnreadableObject(asset.AssetInfo, assetData.ToArray());
+		UnreadableObject unreadable = new(asset.AssetInfo, assetData.ToArray());
 		unreadable.Name = (asset as INamed)?.Name;
 		return unreadable;
 	}
@@ -146,7 +153,7 @@ public sealed class GameAssetFactory : AssetFactoryBase
 			error = null;
 			return new UnknownObject(assetInfo, assetData.ToArray());
 		}
-		EndianSpanReader reader = new EndianSpanReader(assetData, asset.Collection.EndianType);
+		EndianSpanReader reader = new(assetData, asset.Collection.EndianType);
 		try
 		{
 			asset.Read(ref reader);
