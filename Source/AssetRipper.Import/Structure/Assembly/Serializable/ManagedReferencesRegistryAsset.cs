@@ -116,9 +116,12 @@ internal sealed class ManagedReferencesRegistryAsset : UnityAssetBase, IDeepClon
 
 	private static ManagedReferenceTypeDescriptor ReadDescriptor(ref EndianSpanReader reader)
 	{
-		string className = reader.ReadUtf8StringAligned().String;
-		string namespaceName = reader.ReadUtf8StringAligned().String;
-		string assemblyName = reader.ReadUtf8StringAligned().String;
+		string className = reader.ReadUtf8String();
+		reader.Align();
+		string namespaceName = reader.ReadUtf8String();
+		reader.Align();
+		string assemblyName = reader.ReadUtf8String();
+		reader.Align();
 		return new ManagedReferenceTypeDescriptor(assemblyName, namespaceName, className);
 	}
 
@@ -273,6 +276,9 @@ internal sealed class ManagedReferencesRegistryAsset : UnityAssetBase, IDeepClon
 
 	private sealed class ManagedReferenceTypeAsset(ManagedReferenceTypeDescriptor descriptor) : UnityAssetBase
 	{
+		// Force type-mapping descriptor properties (class, ns, asm) to be written on a single line (flow-mapped)
+		public override bool FlowMappedInYaml => true;
+
 		public override void WalkEditor(AssetWalker walker)
 		{
 			if (!walker.EnterAsset(this))

@@ -102,6 +102,10 @@ public static class Pass015_AddFields
 		{
 			return true;
 		}
+		if (node.NodeType == NodeType.Vector && node.SubNodes.Count >= 1)
+		{
+			return IsManagedReference(node.SubNodes[0]);
+		}
 		if (node.NodeType == NodeType.Array && node.SubNodes.Count >= 2)
 		{
 			return IsManagedReference(node.SubNodes[1]);

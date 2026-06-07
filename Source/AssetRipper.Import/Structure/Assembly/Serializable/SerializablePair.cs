@@ -13,13 +13,13 @@ namespace AssetRipper.Import.Structure.Assembly.Serializable;
 public sealed class SerializablePair : UnityAssetBase
 {
 	public int Depth { get; }
-	public SerializableType Type { get; }
+	public global::AssetRipper.SerializationLogic.SerializableType Type { get; }
 	public SerializableValue First { get; set; }
 	public SerializableValue Second { get; set; }
-	public SerializableType.Field FirstField { get; }
-	public SerializableType.Field SecondField { get; }
+	public global::AssetRipper.SerializationLogic.SerializableType.Field FirstField { get; }
+	public global::AssetRipper.SerializationLogic.SerializableType.Field SecondField { get; }
 
-	public SerializablePair(SerializableType type, int depth)
+	public SerializablePair(global::AssetRipper.SerializationLogic.SerializableType type, int depth)
 	{
 		Depth = depth;
 		Type = type ?? throw new ArgumentNullException(nameof(type));

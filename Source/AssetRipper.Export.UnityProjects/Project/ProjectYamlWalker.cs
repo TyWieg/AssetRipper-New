@@ -2,6 +2,7 @@
 using AssetRipper.Assets.Metadata;
 using AssetRipper.SourceGenerated.Subclasses.SceneObjectIdentifier;
 using AssetRipper.Yaml;
+using System;
 
 namespace AssetRipper.Export.UnityProjects.Project;
 
@@ -69,5 +70,32 @@ public sealed class ProjectYamlWalker : YamlWalker
 			MetaPtr pointer = MetaPtr.CreateMissingReference(GetClassID(typeof(TAsset)), assetType);
 			return pointer.ExportYaml(container.ExportVersion);
 		}
+	}
+
+	public override void VisitPrimitive<T>(T value)
+	{
+		// Intercept and translate string-based AssetReference GUID fields inline
+		if (value is string originalGuidStr && originalGuidStr.Length == 32 && IsGuidField(CurrentFieldName))
+		{
+			if (container is ProjectAssetContainer projectContainer && projectContainer.TryGetTranslatedGuid(originalGuidStr, out string? translatedGuid))
+			{
+				base.VisitPrimitive((T)(object)translatedGuid);
+				return;
+			}
+		}
+
+		base.VisitPrimitive(value);
+	}
+
+	private static bool IsGuidField(string? fieldName)
+	{
+		if (fieldName == null)
+		{
+			return false;
+		}
+
+		return fieldName.EndsWith("GUID", StringComparison.OrdinalIgnoreCase) ||
+			   fieldName.EndsWith("Guid", StringComparison.OrdinalIgnoreCase) ||
+			   string.Equals(fieldName, "guid", StringComparison.OrdinalIgnoreCase);
 	}
 }

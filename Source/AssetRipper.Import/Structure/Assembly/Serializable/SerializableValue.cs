@@ -90,8 +90,6 @@ public record struct SerializableValue([property: DebuggerBrowsable(DebuggerBrow
 		set => AsUInt32 = BitConverter.SingleToUInt32Bits(value);
 	}
 
-	public float PercentComplete => IsDone ? 1f : 0f;
-
 	public double AsDouble
 	{
 		readonly get => BitConverter.UInt64BitsToDouble(AsUInt64);
@@ -473,7 +471,7 @@ public record struct SerializableValue([property: DebuggerBrowsable(DebuggerBrow
 						AsDouble = reader.ReadDouble();
 						break;
 					case PrimitiveType.String:
-						AsString = reader.ReadUtf8StringAligned().String;
+						AsString = reader.ReadUtf8String();
 						break;
 					case PrimitiveType.Complex:
 						AsAsset = CreateAndReadComplexStructure(ref reader, version, flags, depth, etalon, managedReferenceResolver);
@@ -494,40 +492,40 @@ public record struct SerializableValue([property: DebuggerBrowsable(DebuggerBrow
 				switch (etalon.Type.Type)
 				{
 					case PrimitiveType.Bool:
-						AsBooleanArray = reader.ReadPrimitiveArray<bool>(version);
+						AsBooleanArray = reader.ReadBooleanArray(version);
 						break;
 					case PrimitiveType.Char:
-						AsCharArray = reader.ReadPrimitiveArray<char>(version);
+						AsCharArray = reader.ReadCharArray(version);
 						break;
 					case PrimitiveType.SByte:
-						AsSByteArray = reader.ReadPrimitiveArray<sbyte>(version);
+						AsSByteArray = reader.ReadSByteArray(version);
 						break;
 					case PrimitiveType.Byte:
-						AsByteArray = reader.ReadPrimitiveArray<byte>(version);
+						AsByteArray = reader.ReadByteArray(version);
 						break;
 					case PrimitiveType.Short:
-						AsInt16Array = reader.ReadPrimitiveArray<short>(version);
+						AsInt16Array = reader.ReadInt16Array(version);
 						break;
 					case PrimitiveType.UShort:
-						AsUInt16Array = reader.ReadPrimitiveArray<ushort>(version);
+						AsUInt16Array = reader.ReadUInt16Array(version);
 						break;
 					case PrimitiveType.Int:
-						AsInt32Array = reader.ReadPrimitiveArray<int>(version);
+						AsInt32Array = reader.ReadInt32Array(version);
 						break;
 					case PrimitiveType.UInt:
-						AsUInt32Array = reader.ReadPrimitiveArray<uint>(version);
+						AsUInt32Array = reader.ReadUInt32Array(version);
 						break;
 					case PrimitiveType.Long:
-						AsInt64Array = reader.ReadPrimitiveArray<long>(version);
+						AsInt64Array = reader.ReadInt64Array(version);
 						break;
 					case PrimitiveType.ULong:
-						AsUInt64Array = reader.ReadPrimitiveArray<ulong>(version);
+						AsUInt64Array = reader.ReadUInt64Array(version);
 						break;
 					case PrimitiveType.Single:
-						AsSingleArray = reader.ReadPrimitiveArray<float>(version);
+						AsSingleArray = reader.ReadSingleArray(version);
 						break;
 					case PrimitiveType.Double:
-						AsDoubleArray = reader.ReadPrimitiveArray<double>(version);
+						AsDoubleArray = reader.ReadDoubleArray(version);
 						break;
 					case PrimitiveType.String:
 						AsStringArray = reader.ReadStringArray(version);
@@ -575,40 +573,40 @@ public record struct SerializableValue([property: DebuggerBrowsable(DebuggerBrow
 				switch (etalon.Type.Type)
 				{
 					case PrimitiveType.Bool:
-						AsBooleanArrayArray = reader.ReadPrimitiveArrayArray<bool>(version);
+						AsBooleanArrayArray = reader.ReadBooleanArrayArray(version);
 						break;
 					case PrimitiveType.Char:
-						AsCharArrayArray = reader.ReadPrimitiveArrayArray<char>(version);
+						AsCharArrayArray = reader.ReadCharArrayArray(version);
 						break;
 					case PrimitiveType.SByte:
-						AsSByteArrayArray = reader.ReadPrimitiveArrayArray<sbyte>(version);
+						AsSByteArrayArray = reader.ReadSByteArrayArray(version);
 						break;
 					case PrimitiveType.Byte:
-						AsByteArrayArray = reader.ReadPrimitiveArrayArray<byte>(version);
+						AsByteArrayArray = reader.ReadByteArrayArray(version);
 						break;
 					case PrimitiveType.Short:
-						AsInt16ArrayArray = reader.ReadPrimitiveArrayArray<short>(version);
+						AsInt16ArrayArray = reader.ReadInt16ArrayArray(version);
 						break;
 					case PrimitiveType.UShort:
-						AsUInt16ArrayArray = reader.ReadPrimitiveArrayArray<ushort>(version);
+						AsUInt16ArrayArray = reader.ReadUInt16ArrayArray(version);
 						break;
 					case PrimitiveType.Int:
-						AsInt32ArrayArray = reader.ReadPrimitiveArrayArray<int>(version);
+						AsInt32ArrayArray = reader.ReadInt32ArrayArray(version);
 						break;
 					case PrimitiveType.UInt:
-						AsUInt32ArrayArray = reader.ReadPrimitiveArrayArray<uint>(version);
+						AsUInt32ArrayArray = reader.ReadUInt32ArrayArray(version);
 						break;
 					case PrimitiveType.Long:
-						AsInt64ArrayArray = reader.ReadPrimitiveArrayArray<long>(version);
+						AsInt64ArrayArray = reader.ReadInt64ArrayArray(version);
 						break;
 					case PrimitiveType.ULong:
-						AsUInt64ArrayArray = reader.ReadPrimitiveArrayArray<ulong>(version);
+						AsUInt64ArrayArray = reader.ReadUInt64ArrayArray(version);
 						break;
 					case PrimitiveType.Single:
-						AsSingleArrayArray = reader.ReadPrimitiveArrayArray<float>(version);
+						AsSingleArrayArray = reader.ReadSingleArrayArray(version);
 						break;
 					case PrimitiveType.Double:
-						AsDoubleArrayArray = reader.ReadPrimitiveArrayArray<double>(version);
+						AsDoubleArrayArray = reader.ReadDoubleArrayArray(version);
 						break;
 					case PrimitiveType.String:
 						AsStringArrayArray = reader.ReadStringArrayArray(version);
@@ -1239,102 +1237,6 @@ public record struct SerializableValue([property: DebuggerBrowsable(DebuggerBrow
 				break;
 			case IUnityAssetBase asset:
 				asset.Reset();
-				break;
-			case SerializablePair pair:
-				pair.Reset();
-				break;
-			case bool[]:
-				CValue = Array.Empty<bool>();
-				break;
-			case char[]:
-				CValue = Array.Empty<char>();
-				break;
-			case sbyte[]:
-				CValue = Array.Empty<sbyte>();
-				break;
-			case byte[]:
-				CValue = Array.Empty<byte>();
-				break;
-			case short[]:
-				CValue = Array.Empty<short>();
-				break;
-			case ushort[]:
-				CValue = Array.Empty<ushort>();
-				break;
-			case int[]:
-				CValue = Array.Empty<int>();
-				break;
-			case uint[]:
-				CValue = Array.Empty<uint>();
-				break;
-			case long[]:
-				CValue = Array.Empty<long>();
-				break;
-			case ulong[]:
-				CValue = Array.Empty<ulong>();
-				break;
-			case Half[]:
-				CValue = Array.Empty<Half>();
-				break;
-			case float[]:
-				CValue = Array.Empty<float>();
-				break;
-			case double[]:
-				CValue = Array.Empty<double>();
-				break;
-			case string[]:
-				CValue = Array.Empty<string>();
-				break;
-			case IUnityAssetBase[]:
-				CValue = Array.Empty<IUnityAssetBase>();
-				break;
-			case SerializablePair[]:
-				CValue = Array.Empty<SerializablePair>();
-				break;
-			case bool[][]:
-				CValue = Array.Empty<bool[]>();
-				break;
-			case char[][]:
-				CValue = Array.Empty<char[]>();
-				break;
-			case sbyte[][]:
-				CValue = Array.Empty<sbyte[]>();
-				break;
-			case byte[][]:
-				CValue = Array.Empty<byte[]>();
-				break;
-			case short[][]:
-				CValue = Array.Empty<short[]>();
-				break;
-			case ushort[][]:
-				CValue = Array.Empty<ushort[]>();
-				break;
-			case int[][]:
-				CValue = Array.Empty<int[]>();
-				break;
-			case uint[][]:
-				CValue = Array.Empty<uint[]>();
-				break;
-			case long[][]:
-				CValue = Array.Empty<long[]>();
-				break;
-			case ulong[][]:
-				CValue = Array.Empty<ulong[]>();
-				break;
-			case Half[][]:
-				CValue = Array.Empty<Half[]>();
-				break;
-			case float[][]:
-				CValue = Array.Empty<float[]>();
-				break;
-			case double[][]:
-				CValue = Array.Empty<double[]>();
-				break;
-			case string[][]:
-				CValue = Array.Empty<string[]>();
-				break;
-			case IUnityAssetBase[][]:
-				CValue = Array.Empty<IUnityAssetBase[]>();
 				break;
 		}
 	}

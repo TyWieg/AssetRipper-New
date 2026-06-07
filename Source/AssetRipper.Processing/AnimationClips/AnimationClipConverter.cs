@@ -28,9 +28,12 @@ using AssetRipper.SourceGenerated.Subclasses.PPtrKeyframe;
 using AssetRipper.SourceGenerated.Subclasses.QuaternionCurve;
 using AssetRipper.SourceGenerated.Subclasses.StreamedClip;
 using AssetRipper.SourceGenerated.Subclasses.Vector3Curve;
+using System;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 
 namespace AssetRipper.Processing.AnimationClips;
@@ -276,7 +279,7 @@ public readonly partial struct AnimationClipConverter
 
 			default:
 				string attribute = m_customCurveResolver.ToAttributeName((BindingCustomType)binding.CustomType, binding.Attribute, path);
-				CurveData curve = new(path, attribute, binding.GetClassID(), binding.Script.TryGetAsset(m_clip.Collection));
+				CurveData curve = new(path, attribute, binding.GetClassID(), binding.Script.TryGetAsset(m_clip.Collection), IsSerializeReference(binding));
 				if (binding.IsPPtrCurve())
 				{
 					AddPPtrKeyframe(curve, time, (int)value);
@@ -468,13 +471,13 @@ public readonly partial struct AnimationClipConverter
 	{
 		if (GameObject.TryGetPath(binding.Attribute, out string? propertyName))
 		{
-			CurveData curve = new(path, propertyName, ClassIDType.GameObject);
+			CurveData curve = new(path, propertyName, ClassIDType.GameObject, null, IsSerializeReference(binding));
 			AddFloatKeyframe(curve, time, value, inTangent, outTangent);
 		}
 		else
 		{
 			// that means that dev exported animation clip with missing component
-			CurveData curve = new(path, GetReversedPath(MissedPropertyPrefix, binding.Attribute), ClassIDType.GameObject);
+			CurveData curve = new(path, GetReversedPath(MissedPropertyPrefix, binding.Attribute), ClassIDType.GameObject, null, IsSerializeReference(binding));
 			AddFloatKeyframe(curve, time, value, inTangent, outTangent);
 		}
 	}
@@ -491,7 +494,7 @@ public readonly partial struct AnimationClipConverter
 			propertyName = GetReversedPath(ScriptPropertyPrefix, binding.Attribute);
 		}
 
-		CurveData curve = new(path, propertyName, ClassIDType.MonoBehaviour, binding.Script.TryGetAsset(m_clip.Collection));
+		CurveData curve = new(path, propertyName, ClassIDType.MonoBehaviour, binding.Script.TryGetAsset(m_clip.Collection), IsSerializeReference(binding));
 
 		if (binding.IsPPtrCurve())
 		{
@@ -510,7 +513,7 @@ public readonly partial struct AnimationClipConverter
 			propertyName = GetReversedPath(TypeTreePropertyPrefix, binding.Attribute);
 		}
 
-		CurveData curve = new(path, propertyName, binding.GetClassID());
+		CurveData curve = new(path, propertyName, binding.GetClassID(), null, IsSerializeReference(binding));
 
 		if (binding.IsPPtrCurve())
 		{
@@ -525,7 +528,7 @@ public readonly partial struct AnimationClipConverter
 	private void AddAnimatorMuscleCurve(IGenericBinding binding, float time, float value, float inTangent, float outTangent)
 	{
 		string attributeString = HumanoidMuscleTypeExtensions.ToAttributeString(binding.GetHumanoidMuscle(Version));
-		CurveData curve = new(string.Empty, attributeString, ClassIDType.Animator);
+		CurveData curve = new(string.Empty, attributeString, ClassIDType.Animator, null, IsSerializeReference(binding));
 		AddFloatKeyframe(curve, time, value, inTangent, outTangent);
 	}
 
@@ -539,7 +542,17 @@ public readonly partial struct AnimationClipConverter
 			curve.ClassID = (int)curveData.ClassID;
 			curve.Script.SetAsset(m_clip.Collection, curveData.Script as IMonoScript);
 			curve.Curve.SetDefaultRotationOrderAndCurveLoopType();
-			//Todo: set IFloatCurve.Flags or verify that 0 is an acceptable value.
+			if (curveData.IsSerializeReference)
+			{
+				if (curve.Has_IsSerializeReferenceCurve())
+				{
+					curve.IsSerializeReferenceCurve = true;
+				}
+				else if (curve.Has_IsSerializeReferenceCurve_Boolean())
+				{
+					curve.IsSerializeReferenceCurve_Boolean = true;
+				}
+			}
 			m_floats.Add(curveData, curve);
 		}
 
@@ -560,9 +573,18 @@ public readonly partial struct AnimationClipConverter
 			curve.Attribute = curveData.Attribute;
 			curve.ClassID = (int)curveData.ClassID;
 			curve.Script.SetAsset(m_clip.Collection, curveData.Script as IMonoScript);
-			//Not certain this enum is correct, but it seems to be. 2 is the correct value for this field.
-			//See: https://github.com/AssetRipper/AssetRipper/issues/1158
 			curve.Flags = (int)SourceGenerated.NativeEnums.Global.EditorCurveBindingFlags.PPtr;
+			if (curveData.IsSerializeReference)
+			{
+				if (curve.Has_IsSerializeReferenceCurve())
+				{
+					curve.IsSerializeReferenceCurve = true;
+				}
+				else if (curve.Has_IsSerializeReferenceCurve_Boolean())
+				{
+					curve.IsSerializeReferenceCurve_Boolean = true;
+				}
+			}
 			m_pptrs.Add(curveData, curve);
 		}
 
@@ -698,6 +720,19 @@ public readonly partial struct AnimationClipConverter
 	private static string GetReversedPath([ConstantExpected] string prefix, uint hash)
 	{
 		return Crc32Algorithm.ReverseAscii(hash, $"{prefix}0x{hash:X}_");
+	}
+
+	private static bool IsSerializeReference(IGenericBinding binding)
+	{
+		if (binding.Has_IsSerializeReference())
+		{
+			return binding.IsSerializeReference;
+		}
+		if (binding.Has_IsSerializeReference_Boolean())
+		{
+			return binding.IsSerializeReference_Boolean;
+		}
+		return false;
 	}
 
 	private UnityVersion Version => m_clip.Collection.Version;

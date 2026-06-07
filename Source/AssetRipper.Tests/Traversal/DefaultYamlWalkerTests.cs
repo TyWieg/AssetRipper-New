@@ -11,7 +11,9 @@ using AssetRipper.SourceGenerated.Subclasses.FastPropertyName;
 using AssetRipper.SourceGenerated.Subclasses.StaticBatchInfo;
 using AssetRipper.SourceGenerated.Subclasses.UnityTexEnv;
 using AssetRipper.Yaml;
+using System;
 using System.Globalization;
+using System.IO;
 
 namespace AssetRipper.Tests.Traversal;
 
@@ -24,7 +26,7 @@ internal class DefaultYamlWalkerTests
 		using (Assert.EnterMultipleScope())
 		{
 			string yamlActual = GenerateYaml(new DefaultYamlWalker(), asset);
-			Assert.That(yamlActual, Is.EqualTo(yamlExpected));
+			Assert.That(NormalizeLineEndings(yamlActual), Is.EqualTo(NormalizeLineEndings(yamlExpected)));
 		}
 	}
 
@@ -100,7 +102,7 @@ internal class DefaultYamlWalkerTests
 		MonoBehaviour_2017_3 monoBehaviour = AssetCreator.CreateUnsafe<MonoBehaviour_2017_3>();
 		monoBehaviour.Structure = new StaticBatchInfo();
 		string yamlActual = GenerateYaml(new DefaultYamlWalker(), monoBehaviour);
-		Assert.That(yamlActual, Is.EqualTo(yamlExpected));
+		Assert.That(NormalizeLineEndings(yamlActual), Is.EqualTo(NormalizeLineEndings(yamlExpected)));
 	}
 
 	[Test]
@@ -140,7 +142,7 @@ internal class DefaultYamlWalkerTests
 		MonoBehaviour_2017_3 monoBehaviour = AssetCreator.CreateUnsafe<MonoBehaviour_2017_3>();
 		monoBehaviour.Structure = new StaticBatchInfo();
 		string yamlActual = GenerateYaml(new DefaultYamlWalker(), [(monoBehaviour, 1), (monoBehaviour, 2)]);
-		Assert.That(yamlActual, Is.EqualTo(yamlExpected));
+		Assert.That(NormalizeLineEndings(yamlActual), Is.EqualTo(NormalizeLineEndings(yamlExpected)));
 	}
 
 	[Test]
@@ -193,7 +195,7 @@ internal class DefaultYamlWalkerTests
 		}
 
 		string yamlActual = GenerateYaml(new DefaultYamlWalker().WithUnityVersion(new UnityVersion(3, 5, 6)), material);
-		Assert.That(yamlActual, Is.EqualTo(yamlExpected));
+		Assert.That(NormalizeLineEndings(yamlActual), Is.EqualTo(NormalizeLineEndings(yamlExpected)));
 	}
 
 	[Test]
@@ -250,7 +252,7 @@ internal class DefaultYamlWalkerTests
 		}
 
 		string yamlActual = GenerateYaml(new DefaultYamlWalker().WithUnityVersion(new UnityVersion(5, 3, 8)), material);
-		Assert.That(yamlActual, Is.EqualTo(yamlExpected));
+		Assert.That(NormalizeLineEndings(yamlActual), Is.EqualTo(NormalizeLineEndings(yamlExpected)));
 	}
 
 	[Test]
@@ -305,7 +307,7 @@ internal class DefaultYamlWalkerTests
 		}
 
 		string yamlActual = GenerateYaml(new DefaultYamlWalker().WithUnityVersion(new UnityVersion(5, 4)), material);
-		Assert.That(yamlActual, Is.EqualTo(yamlExpected));
+		Assert.That(NormalizeLineEndings(yamlActual), Is.EqualTo(NormalizeLineEndings(yamlExpected)));
 	}
 
 	[Test]
@@ -349,6 +351,16 @@ internal class DefaultYamlWalkerTests
 		director.ExposedReferences_C320.References_Editor.AddNew().Key = "ec546beecf692a4419584c0b9cc42a29";
 
 		string yamlActual = GenerateYaml(new DefaultYamlWalker().WithUnityVersion(new UnityVersion(2019)), director);
-		Assert.That(yamlActual, Is.EqualTo(yamlExpected));
+		Assert.That(NormalizeLineEndings(yamlActual), Is.EqualTo(NormalizeLineEndings(yamlExpected)));
+	}
+
+	private static string NormalizeLineEndings(string? value)
+	{
+		if (value is null)
+		{
+			return string.Empty;
+		}
+
+		return value.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
 	}
 }

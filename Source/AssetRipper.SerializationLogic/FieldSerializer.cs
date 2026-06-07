@@ -1,5 +1,6 @@
 using AsmResolver.DotNet;
 using AsmResolver.DotNet.Signatures;
+using AssetRipper.Primitives;
 using AssetRipper.SerializationLogic.Extensions;
 using System;
 using System.Collections.Generic;
@@ -12,6 +13,13 @@ namespace AssetRipper.SerializationLogic;
 
 public readonly partial struct FieldSerializer
 {
+	private readonly UnityVersion version;
+
+	public FieldSerializer(UnityVersion version)
+	{
+		this.version = version;
+	}
+
 	private static SerializableType ManagedReferencesRegistryFieldType { get; } = new SyntheticSerializableType(null, PrimitiveType.Complex, "ManagedReferencesRegistry", []);
 
 	public bool TryCreateSerializableType(TypeDefinition typeDefinition,

@@ -12,12 +12,12 @@ namespace AssetRipper.SerializationLogic;
 
 public readonly partial struct FieldSerializer
 {
-	private bool IsStructSerializable { get; } = version.GreaterThanOrEquals(4, 5);
+	private bool IsStructSerializable => version.GreaterThanOrEquals(4, 5);
 	private bool IsInt8Serializable => IsInt16Serializable;
-	private bool IsInt16Serializable { get; } = version.GreaterThanOrEquals(5);
+	private bool IsInt16Serializable => version.GreaterThanOrEquals(5);
 	private bool IsUInt32Serializable => IsInt16Serializable;
 	private bool IsCharSerializable => IsInt64Serializable;
-	private bool IsInt64Serializable { get; } = version.GreaterThanOrEquals(2017);
+	private bool IsInt64Serializable => version.GreaterThanOrEquals(2017);
 	private bool IsGenericInstanceSerializable => version.GreaterThanOrEquals(2020);
 
 	private bool WillUnitySerialize(FieldDefinition fieldDefinition, TypeSignature fieldType)

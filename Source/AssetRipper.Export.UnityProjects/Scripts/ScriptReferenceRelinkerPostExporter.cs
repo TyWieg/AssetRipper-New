@@ -153,6 +153,9 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 				private static bool EnableAutoRelink = true;
 				private static bool VerboseLogging = true;
 
+				private static readonly byte[] GuidBytes = new byte[] { (byte)'g', (byte)'u', (byte)'i', (byte)'d', (byte)':' };
+				private static readonly byte[] FileIdBytes = new byte[] { (byte)'f', (byte)'i', (byte)'l', (byte)'e', (byte)'I', (byte)'D', (byte)':' };
+
 				static ScriptReferenceRelinker()
 				{
 					if (EnableAutoRelink)
@@ -198,6 +201,73 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 					RebuildAddressableGroups(false);
 				}
 
+				private static bool ShouldScanFile(string fullPath)
+				{
+					try
+					{
+						using (FileStream fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096))
+						{
+							byte[] buffer = new byte[1024];
+							int bytesRead;
+							while ((bytesRead = fs.Read(buffer, 0, buffer.Length)) > 0)
+							{
+								if (ContainsBytes(buffer, bytesRead, GuidBytes) || ContainsBytes(buffer, bytesRead, FileIdBytes))
+								{
+									return true;
+								}
+							}
+						}
+					}
+					catch
+					{
+						return true; // Fallback to scanning on read errors
+					}
+					return false;
+				}
+
+				private static bool ContainsBytes(byte[] buffer, int length, byte[] target)
+				{
+					int targetLength = target.Length;
+					for (int i = 0; i <= length - targetLength; i++)
+					{
+						bool match = true;
+						for (int j = 0; j < targetLength; j++)
+						{
+							if (buffer[i + j] != target[j])
+							{
+								match = false;
+								break;
+							}
+						}
+						if (match) return true;
+					}
+					return false;
+				}
+
+				private static void ExecuteBatchAction(Action action)
+				{
+					Type editingScopeType = Type.GetType("UnityEditor.AssetDatabase+AssetEditingScope, UnityEditor");
+					if (editingScopeType != null)
+					{
+						using (IDisposable scope = Activator.CreateInstance(editingScopeType) as IDisposable)
+						{
+							action();
+						}
+					}
+					else
+					{
+						AssetDatabase.StartAssetEditing();
+						try
+						{
+							action();
+						}
+						finally
+						{
+							AssetDatabase.StopAssetEditing();
+						}
+					}
+				}
+
 				private static void Relink(bool verbose)
 				{
 					string mapPath = GetAbsoluteMapPath();
@@ -219,8 +289,9 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 
 					try
 					{
-						AssetDatabase.StartAssetEditing();
-						string[] candidatePaths = EnumerateCandidateAssetPaths().ToArray();
+						string[] candidatePaths = EnumerateCandidateAssetPaths()
+							.Where(ShouldScanFile)
+							.ToArray();
 						float total = candidatePaths.Length;
 
 						ConcurrentBag<(string Path, string Text, int Replacements, int Skipped, int Unresolved)> modifiedFiles = new ConcurrentBag<(string, string, int, int, int)>();
@@ -238,27 +309,32 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 							}
 						});
 
-						int fileIndex = 0;
-						foreach (var file in modifiedFiles)
+						if (modifiedFiles.Count > 0)
 						{
-							if (verbose) EditorUtility.DisplayProgressBar("Relinking Assets", file.Path, (float)fileIndex++ / modifiedFiles.Count);
-							try
+							ExecuteBatchAction(() =>
 							{
-								File.WriteAllText(Path.GetFullPath(file.Path), file.Text);
-								changedFiles++;
-								changedReferences += file.Replacements;
-								skippedAlreadyCorrect += file.Skipped;
-								unresolvedCount += file.Unresolved;
-							}
-							catch (Exception ex)
-							{
-								Debug.LogError($"AssetRipper: Failed to write relinked file {file.Path}: {ex.Message}");
-							}
+								int fileIndex = 0;
+								foreach (var file in modifiedFiles)
+								{
+									if (verbose) EditorUtility.DisplayProgressBar("Relinking Assets", file.Path, (float)fileIndex++ / modifiedFiles.Count);
+									try
+									{
+										File.WriteAllText(Path.GetFullPath(file.Path), file.Text);
+										changedFiles++;
+										changedReferences += file.Replacements;
+										skippedAlreadyCorrect += file.Skipped;
+										unresolvedCount += file.Unresolved;
+									}
+									catch (Exception ex)
+									{
+										Debug.LogError($"AssetRipper: Failed to write relinked file {file.Path}: {ex.Message}");
+									}
+								}
+							});
 						}
 					}
 					finally
 					{
-						AssetDatabase.StopAssetEditing();
 						EditorUtility.ClearProgressBar();
 					}
 

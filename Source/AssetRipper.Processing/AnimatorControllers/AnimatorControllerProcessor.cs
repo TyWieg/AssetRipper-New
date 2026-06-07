@@ -13,7 +13,10 @@ using AssetRipper.SourceGenerated.Subclasses.AnimatorControllerParameter;
 using AssetRipper.SourceGenerated.Subclasses.ControllerConstant;
 using AssetRipper.SourceGenerated.Subclasses.LayerConstant;
 using AssetRipper.SourceGenerated.Subclasses.ValueConstant;
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 
 namespace AssetRipper.Processing.AnimatorControllers;
 
@@ -140,8 +143,15 @@ public sealed class AnimatorControllerProcessor : IAssetProcessor
 
 		animatorControllerLayer.StateMachine.SetAsset(controller.Collection, stateMachine);
 
-#warning TODO: animator
-		// animatorControllerLayer.Mask = new();
+		if (animatorControllerLayer.Has_Mask() && layer.Has_Mask())
+		{
+			animatorControllerLayer.Mask.CopyValues(layer.Mask, new PPtrConverter(controller));
+		}
+
+		if (animatorControllerLayer.Has_SkeletonMask() && layer.Has_SkeletonMask())
+		{
+			animatorControllerLayer.SkeletonMask.CopyValues(layer.SkeletonMask, new PPtrConverter(controller));
+		}
 
 		animatorControllerLayer.BlendingMode = layer.LayerBlendingMode;
 		animatorControllerLayer.SyncedLayerIndex = layer.StateMachineSynchronizedLayerIndex == 0 ? -1 : (int)layer.StateMachineIndex;

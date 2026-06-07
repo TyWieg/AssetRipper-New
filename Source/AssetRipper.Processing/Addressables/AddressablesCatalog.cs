@@ -2,7 +2,7 @@ using System;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace AssetRipper.Processing.Addressables;
+namespace AssetRipper.Export.UnityProjects.Addressables;
 
 public class AddressablesCatalog
 {
@@ -25,13 +25,19 @@ public class AddressablesCatalog
 	public string[]? ResourceTypes { get; set; }
 }
 
+[JsonSerializable(typeof(AddressablesCatalog))]
+[JsonSerializable(typeof(AddressablesSettingsData))]
+internal partial class AddressablesJsonContext : JsonSerializerContext
+{
+}
+
 public static class AddressablesCatalogParser
 {
 	public static AddressablesCatalog? ParseJson(string json)
 	{
 		try
 		{
-			return JsonSerializer.Deserialize<AddressablesCatalog>(json);
+			return JsonSerializer.Deserialize(json, AddressablesJsonContext.Default.AddressablesCatalog);
 		}
 		catch
 		{

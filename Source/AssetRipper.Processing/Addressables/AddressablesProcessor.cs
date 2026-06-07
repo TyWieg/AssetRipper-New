@@ -1,5 +1,6 @@
 using AssetRipper.Assets;
 using AssetRipper.Assets.Collections;
+using AssetRipper.Export.UnityProjects.Addressables;
 using AssetRipper.Import.Logging;
 using AssetRipper.Import.Structure.Assembly.Serializable;
 using AssetRipper.Import.Structure.Platforms;
@@ -15,20 +16,15 @@ namespace AssetRipper.Processing.Addressables;
 
 public class AddressablesProcessor : IAssetProcessor
 {
-	private sealed class SettingsJsonData
-	{
-		public string? m_buildTarget { get; set; }
-		public string? m_SettingsHash { get; set; }
-		public string? m_AddressablesVersion { get; set; }
-		public int m_maxConcurrentWebRequests { get; set; }
-		public int m_CatalogRequestsTimeout { get; set; }
-		public bool m_IsLocalCatalogInBundle { get; set; }
-		public bool m_DisableCatalogUpdateOnStart { get; set; }
-	}
-
 	public void Process(GameData gameData)
 	{
 		Logger.Info(LogCategory.Processing, "Starting advanced Addressables reconstruction...");
+
+		if (gameData.PlatformStructure == null)
+		{
+			Logger.Info(LogCategory.Processing, "Platform structure is null. Skipping Addressables reconstruction.");
+			return;
+		}
 
 		string? aaPath = FindAddressablesFolder(gameData.PlatformStructure);
 		if (aaPath == null)
@@ -38,13 +34,13 @@ public class AddressablesProcessor : IAssetProcessor
 		}
 
 		string settingsPath = Path.Combine(aaPath, "settings.json");
-		SettingsJsonData? settingsData = null;
-		if (gameData.PlatformStructure!.FileSystem.File.Exists(settingsPath))
+		AddressablesSettingsData? settingsData = null;
+		if (gameData.PlatformStructure.FileSystem.File.Exists(settingsPath))
 		{
 			try
 			{
 				string settingsJson = gameData.PlatformStructure.FileSystem.File.ReadAllText(settingsPath);
-				settingsData = JsonSerializer.Deserialize<SettingsJsonData>(settingsJson);
+				settingsData = JsonSerializer.Deserialize(settingsJson, AddressablesJsonContext.Default.AddressablesSettingsData);
 			}
 			catch (Exception ex)
 			{
@@ -52,9 +48,9 @@ public class AddressablesProcessor : IAssetProcessor
 			}
 		}
 
-		List<string> internalIds = new();
-		string? catalogJsonPath = FindCatalog(aaPath, "catalog.json", gameData.PlatformStructure);
-		string? catalogBinPath = FindCatalog(aaPath, "catalog.bin", gameData.PlatformStructure);
+		List<CompactCatalogEntry> entries = new();
+		string? catalogJsonPath = FindCatalog(aaPath, ".json", gameData.PlatformStructure);
+		string? catalogBinPath = FindCatalog(aaPath, ".bin", gameData.PlatformStructure);
 
 		if (catalogJsonPath != null)
 		{
@@ -62,14 +58,21 @@ public class AddressablesProcessor : IAssetProcessor
 			{
 				string json = gameData.PlatformStructure.FileSystem.File.ReadAllText(catalogJsonPath);
 				AddressablesCatalog? catalog = AddressablesCatalogParser.ParseJson(json);
-				if (catalog?.m_InternalIds != null)
+				if (catalog != null && catalog.InternalIds != null && catalog.ResourceTypes != null)
 				{
-					internalIds.AddRange(catalog.m_InternalIds);
+					entries = JsonCatalogDecoder.Decode(
+						catalog.ResourceTypes, // provider/type descriptions mapped as ResourceTypes
+						catalog.InternalIds,
+						catalog.KeyDataString ?? "",
+						catalog.BucketDataString ?? "",
+						catalog.EntryDataString ?? "",
+						catalog.ExtraDataString ?? ""
+					);
 				}
 			}
 			catch (Exception ex)
 			{
-				Logger.Error(LogCategory.Processing, $"Failed to parse JSON catalog: {ex.Message}");
+				Logger.Error(LogCategory.Processing, $"Failed to process JSON catalog: {ex.Message}");
 			}
 		}
 		else if (catalogBinPath != null)
@@ -77,14 +80,16 @@ public class AddressablesProcessor : IAssetProcessor
 			try
 			{
 				byte[] binData = gameData.PlatformStructure.FileSystem.File.ReadAllBytes(catalogBinPath);
-				internalIds = ExtractStringsFromBinaryCatalog(binData);
-				Logger.Info(LogCategory.Processing, $"Extracted {internalIds.Count} path strings from binary catalog.");
+				BinaryCatalogReader reader = new(binData);
+				entries = reader.Parse();
 			}
 			catch (Exception ex)
 			{
 				Logger.Error(LogCategory.Processing, $"Failed to process binary catalog: {ex.Message}");
 			}
 		}
+
+		Logger.Info(LogCategory.Processing, $"Successfully unpacked {entries.Count} addressable resource entries.");
 
 		IMonoBehaviour? settingsAsset = null;
 		List<IMonoBehaviour> groupAssets = new();
@@ -93,11 +98,11 @@ public class AddressablesProcessor : IAssetProcessor
 		{
 			if (asset is IMonoBehaviour monoBehaviour)
 			{
-				if (monoBehaviour.IsAddressableAssetSettings())
+				if (IsAddressableAssetSettings(monoBehaviour))
 				{
 					settingsAsset = monoBehaviour;
 				}
-				else if (monoBehaviour.IsAddressableAssetGroup())
+				else if (IsAddressableAssetGroup(monoBehaviour))
 				{
 					groupAssets.Add(monoBehaviour);
 				}
@@ -109,13 +114,33 @@ public class AddressablesProcessor : IAssetProcessor
 			ApplySettingsToAsset(settingsAsset, settingsData, groupAssets);
 		}
 
-		ReassembleGroupsAndAlignAssets(gameData, internalIds, groupAssets);
-		TranslateAssetReferenceGuids(gameData);
+		ReassembleGroupsAndAlignAssets(gameData, entries, groupAssets);
 	}
 
-	private static void ApplySettingsToAsset(IMonoBehaviour settingsAsset, SettingsJsonData? data, List<IMonoBehaviour> groups)
+	private static bool IsAddressableAssetSettings(IMonoBehaviour monoBehaviour)
 	{
-		SerializableStructure? structure = settingsAsset.LoadStructure();
+		var script = monoBehaviour.ScriptP;
+		return script != null && script.Namespace.String == "UnityEngine.AddressableAssets" && script.ClassName_R.String == "AddressableAssetSettings";
+	}
+
+	private static bool IsAddressableAssetGroup(IMonoBehaviour monoBehaviour)
+	{
+		var script = monoBehaviour.ScriptP;
+		return script != null && script.Namespace.String == "UnityEngine.AddressableAssets" && script.ClassName_R.String == "AddressableAssetGroup";
+	}
+
+	private static void ApplySettingsToAsset(IMonoBehaviour settingsAsset, AddressablesSettingsData? data, List<IMonoBehaviour> groups)
+	{
+		SerializableStructure? structure = null;
+		if (settingsAsset.Structure is UnloadedStructure unloaded)
+		{
+			structure = unloaded.LoadStructure();
+		}
+		else if (settingsAsset.Structure is SerializableStructure loaded)
+		{
+			structure = loaded;
+		}
+
 		if (structure == null) return;
 
 		if (data != null)
@@ -147,7 +172,7 @@ public class AddressablesProcessor : IAssetProcessor
 		}
 	}
 
-	private static void ReassembleGroupsAndAlignAssets(GameData gameData, List<string> internalIds, List<IMonoBehaviour> groups)
+	private static void ReassembleGroupsAndAlignAssets(GameData gameData, List<CompactCatalogEntry> entries, List<IMonoBehaviour> groups)
 	{
 		Dictionary<string, IUnityObjectBase> assetLookup = new(StringComparer.OrdinalIgnoreCase);
 		foreach (IUnityObjectBase asset in gameData.GameBundle.FetchAssets())
@@ -162,121 +187,23 @@ public class AddressablesProcessor : IAssetProcessor
 			}
 		}
 
-		foreach (string internalId in internalIds)
+		foreach (CompactCatalogEntry entry in entries)
 		{
+			string internalId = entry.InternalId;
 			if (string.IsNullOrEmpty(internalId)) continue;
 
 			string normalizedId = internalId.Replace('\\', '/');
-			if (normalizedId.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase))
+			if (normalizedId.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
+				normalizedId.StartsWith("Packages/", StringComparison.OrdinalIgnoreCase))
 			{
-				if (assetLookup.TryGetValue(normalizedId, out IUnityObjectBase? matchingAsset))
+				string assetName = Path.GetFileNameWithoutExtension(normalizedId);
+				if (assetLookup.TryGetValue(assetName, out IUnityObjectBase? matchingAsset))
 				{
 					matchingAsset.OverrideDirectory = Path.GetDirectoryName(normalizedId);
-					matchingAsset.OverrideName = Path.GetFileNameWithoutExtension(normalizedId);
+					matchingAsset.OverrideName = assetName;
 				}
 			}
 		}
-	}
-
-	private static void TranslateAssetReferenceGuids(GameData gameData)
-	{
-		Dictionary<string, string> translationMap = new(StringComparer.OrdinalIgnoreCase);
-		foreach (IUnityObjectBase asset in gameData.GameBundle.FetchAssets())
-		{
-			if (asset is IEditorExtension editorExt)
-			{
-				string originalGuid = editorExt.AssetInfo.GUID.ToString().ToLowerInvariant();
-				string currentGuid = gameData.GetExportID(asset).ToString().ToLowerInvariant();
-				if (!translationMap.ContainsKey(originalGuid))
-				{
-					translationMap.Add(originalGuid, currentGuid);
-				}
-			}
-		}
-
-		foreach (IUnityObjectBase asset in gameData.GameBundle.FetchAssets())
-		{
-			if (asset is IMonoBehaviour monoBehaviour)
-			{
-				SerializableStructure? structure = monoBehaviour.LoadStructure();
-				if (structure != null)
-				{
-					TranslateStructure(structure, translationMap);
-				}
-			}
-		}
-	}
-
-	private static void TranslateStructure(SerializableStructure structure, Dictionary<string, string> translationMap)
-	{
-		for (int i = 0; i < structure.Fields.Length; i++)
-		{
-			ref SerializableValue field = ref structure.Fields[i];
-			if (field.CValue is SerializableStructure childStructure)
-			{
-				if (childStructure.Type.Name == "AssetReference" || childStructure.ContainsField("m_AssetGUID"))
-				{
-					if (childStructure.TryGetField("m_AssetGUID", out SerializableValue guidField))
-					{
-						string rawGuid = guidField.AsString.ToLowerInvariant();
-						if (translationMap.TryGetValue(rawGuid, out string? mappedGuid))
-						{
-							guidField.AsString = mappedGuid;
-						}
-					}
-				}
-				else
-				{
-					TranslateStructure(childStructure, translationMap);
-				}
-			}
-			else if (field.AsAssetArray != null)
-			{
-				foreach (var element in field.AsAssetArray)
-				{
-					if (element is SerializableStructure elementStructure)
-					{
-						TranslateStructure(elementStructure, translationMap);
-					}
-				}
-			}
-		}
-	}
-
-	private static List<string> ExtractStringsFromBinaryCatalog(byte[] data)
-	{
-		List<string> result = new();
-		int index = 0;
-		int len = data.Length;
-
-		while (index < len)
-		{
-			if (index + 7 < len &&
-				data[index] == 'A' &&
-				data[index + 1] == 's' &&
-				data[index + 2] == 's' &&
-				data[index + 3] == 'e' &&
-				data[index + 4] == 't' &&
-				data[index + 5] == 's' &&
-				data[index + 6] == '/')
-			{
-				int start = index;
-				while (index < len && data[index] >= 32 && data[index] <= 126)
-				{
-					index++;
-				}
-				if (index > start)
-				{
-					string path = Encoding.ASCII.GetString(data, start, index - start);
-					result.Add(path);
-				}
-			}
-			else
-			{
-				index++;
-			}
-		}
-		return result;
 	}
 
 	private static string? FindAddressablesFolder(PlatformGameStructure? platform)
@@ -298,14 +225,14 @@ public class AddressablesProcessor : IAssetProcessor
 		return streamingAssetsPath;
 	}
 
-	private static string? FindCatalog(string aaPath, string pattern, PlatformGameStructure? platform)
+	private static string? FindCatalog(string aaPath, string extension, PlatformGameStructure? platform)
 	{
 		if (platform == null) return null;
 
 		foreach (string file in platform.FileSystem.Directory.EnumerateFiles(aaPath, "*", SearchOption.AllDirectories))
 		{
 			string fileName = Path.GetFileName(file);
-			if (fileName.Contains("catalog", StringComparison.OrdinalIgnoreCase) && fileName.EndsWith(pattern, StringComparison.OrdinalIgnoreCase))
+			if (fileName.Contains("catalog", StringComparison.OrdinalIgnoreCase) && fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
 			{
 				return file;
 			}
