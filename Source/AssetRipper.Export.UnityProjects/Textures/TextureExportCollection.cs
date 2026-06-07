@@ -12,6 +12,8 @@ using AssetRipper.SourceGenerated.Enums;
 using AssetRipper.SourceGenerated.Extensions;
 using AssetRipper.SourceGenerated.Subclasses.SpriteMetaData;
 using System.Diagnostics;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace AssetRipper.Export.UnityProjects.Textures;
 
@@ -39,7 +41,8 @@ public class TextureExportCollection : AssetsExportCollection<ITexture2D>
 		if (m_convert)
 		{
 			ITextureImporter importer = ImporterFactory.GenerateTextureImporter(container, texture);
-			AddSprites(container, importer, ((SpriteInformationObject?)Asset.MainAsset)!.Sprites);
+			IReadOnlyDictionary<ISprite, ISpriteAtlas?>? sprites = ((SpriteInformationObject?)Asset.MainAsset)!.Sprites;
+			AddSprites(container, importer, sprites);
 			return importer;
 		}
 		else
@@ -75,65 +78,59 @@ public class TextureExportCollection : AssetsExportCollection<ITexture2D>
 		{
 			importer.SpriteModeE = SpriteImportMode.Single;
 			importer.SpriteExtrude = 1;
-			importer.SpriteMeshType = (int)SpriteMeshType.FullRect;//See pull request #306
+			importer.SpriteMeshType = (int)SpriteMeshType.FullRect;
 			importer.Alignment = (int)SpriteAlignment.Center;
 			if (importer.Has_SpritePivot())
 			{
 				importer.SpritePivot.SetValues(0.5f, 0.5f);
 			}
 			importer.SpritePixelsToUnits = 100.0f;
+			return;
 		}
-		else if (textureSpriteInformation.Count == 1)
+
+		ISprite firstSprite = textureSpriteInformation.Keys.First();
+		bool isSingleSprite = textureSpriteInformation.Count == 1;
+
+		if (isSingleSprite && firstSprite.RD != null && firstSprite.Rect == firstSprite.RD.TextureRect && firstSprite.Name == Asset.Name)
 		{
-			ISprite sprite = textureSpriteInformation.Keys.First();
-			ITexture2D texture = Asset;
-			if (sprite.Rect == sprite.RD.TextureRect && sprite.Name == texture.Name)
-			{
-				importer.SpriteModeE = SpriteImportMode.Single;
-			}
-			else
-			{
-				importer.SpriteModeE = SpriteImportMode.Multiple;
-				importer.TextureTypeE = TextureImporterType.Sprite;
-			}
-			importer.SpriteExtrude = sprite.Extrude;
-			importer.SpriteMeshType = (int)sprite.RD.MeshType;
-			importer.Alignment = (int)SpriteAlignment.Custom;
-			if (importer.Has_SpritePivot() && sprite.Has_Pivot())
-			{
-				importer.SpritePivot.CopyValues(sprite.Pivot);
-			}
-			if (importer.Has_SpriteBorder() && sprite.Has_Border())
-			{
-				importer.SpriteBorder.CopyValues(sprite.Border);
-			}
-			importer.SpritePixelsToUnits = sprite.PixelsToUnits;
+			importer.SpriteModeE = SpriteImportMode.Single;
+		}
+		else
+		{
+			importer.SpriteModeE = SpriteImportMode.Multiple;
 			importer.TextureTypeE = TextureImporterType.Sprite;
-			if (m_exportSprites)
+		}
+
+		importer.SpriteExtrude = firstSprite.Extrude;
+		importer.SpriteMeshType = (int)(firstSprite.RD != null ? firstSprite.RD.MeshType : SpriteMeshType.FullRect);
+
+		if (isSingleSprite)
+		{
+			importer.Alignment = (int)SpriteAlignment.Custom;
+			if (importer.Has_SpritePivot() && firstSprite.Has_Pivot())
 			{
-				AddSpriteSheet(container, importer, textureSpriteInformation);
-				AddIDToName(container, importer, textureSpriteInformation);
+				importer.SpritePivot.CopyValues(firstSprite.Pivot);
+			}
+			if (importer.Has_SpriteBorder() && firstSprite.Has_Border())
+			{
+				importer.SpriteBorder.CopyValues(firstSprite.Border);
 			}
 		}
 		else
 		{
-			ISprite sprite = textureSpriteInformation.Keys.First();
-			importer.TextureTypeE = TextureImporterType.Sprite;
-			importer.SpriteModeE = SpriteImportMode.Multiple;
-			importer.SpriteExtrude = sprite.Extrude;
-			importer.SpriteMeshType = (int)sprite.RD.MeshType;
 			importer.Alignment = (int)SpriteAlignment.Center;
 			if (importer.Has_SpritePivot())
 			{
 				importer.SpritePivot.SetValues(0.5f, 0.5f);
 			}
-			importer.SpritePixelsToUnits = sprite.PixelsToUnits;
-			importer.TextureTypeE = TextureImporterType.Sprite;
-			if (m_exportSprites)
-			{
-				AddSpriteSheet(container, importer, textureSpriteInformation);
-				AddIDToName(container, importer, textureSpriteInformation);
-			}
+		}
+
+		importer.SpritePixelsToUnits = firstSprite.PixelsToUnits;
+
+		if (m_exportSprites)
+		{
+			AddSpriteSheet(container, importer, textureSpriteInformation);
+			AddIDToName(container, importer, textureSpriteInformation);
 		}
 	}
 
@@ -141,8 +138,10 @@ public class TextureExportCollection : AssetsExportCollection<ITexture2D>
 	{
 		if (!importer.Has_SpriteSheet())
 		{
+			return;
 		}
-		else if (importer.SpriteModeE == SpriteImportMode.Single)
+
+		if (importer.SpriteModeE == SpriteImportMode.Single)
 		{
 			KeyValuePair<ISprite, ISpriteAtlas?> kvp = textureSpriteInformation.First();
 			ISpriteMetaData smeta = SpriteMetaData.Create(kvp.Key.Collection.Version);
@@ -153,6 +152,8 @@ public class TextureExportCollection : AssetsExportCollection<ITexture2D>
 		{
 			Debug.Assert(importer.SpriteModeE == SpriteImportMode.Multiple);
 			AccessListBase<ISpriteMetaData> spriteSheetSprites = importer.SpriteSheet.Sprites;
+			spriteSheetSprites.Capacity = textureSpriteInformation.Count;
+
 			foreach (KeyValuePair<ISprite, ISpriteAtlas?> kvp in textureSpriteInformation)
 			{
 				ISpriteMetaData smeta = spriteSheetSprites.AddNew();
@@ -167,41 +168,41 @@ public class TextureExportCollection : AssetsExportCollection<ITexture2D>
 
 	private void AddIDToName(IExportContainer container, ITextureImporter importer, IReadOnlyDictionary<ISprite, ISpriteAtlas?> textureSpriteInformation)
 	{
-		if (importer.SpriteModeE == SpriteImportMode.Multiple)
+		if (importer.SpriteModeE != SpriteImportMode.Multiple)
 		{
-			if (importer.Has_InternalIDToNameTable())
+			return;
+		}
+
+		if (importer.Has_InternalIDToNameTable())
+		{
+			importer.InternalIDToNameTable.Capacity = textureSpriteInformation.Count;
+			foreach (ISprite sprite in textureSpriteInformation.Keys)
 			{
-				foreach (ISprite sprite in textureSpriteInformation.Keys)
-				{
-					AssetPair<AssetPair<int, long>, Utf8String> pair = importer.InternalIDToNameTable.AddNew();
-					pair.Key.Key = (int)ClassIDType.Sprite;
-					pair.Key.Value = GetExportID(container, sprite);
-					pair.Value = sprite.Name;
-				}
+				long exportID = GetExportID(container, sprite);
+				AssetPair<AssetPair<int, long>, Utf8String> pair = importer.InternalIDToNameTable.AddNew();
+				pair.Key.Key = (int)ClassIDType.Sprite;
+				pair.Key.Value = exportID;
+				pair.Value = sprite.Name;
 			}
-			else if (importer.Has_FileIDToRecycleName_AssetDictionary_Int64_Utf8String())
+		}
+		else if (importer.Has_FileIDToRecycleName_AssetDictionary_Int64_Utf8String())
+		{
+			foreach (ISprite sprite in textureSpriteInformation.Keys)
 			{
-				foreach (ISprite sprite in textureSpriteInformation.Keys)
-				{
-					long exportID = GetExportID(container, sprite);
-					importer.FileIDToRecycleName_AssetDictionary_Int64_Utf8String.Add(exportID, sprite.Name);
-				}
+				long exportID = GetExportID(container, sprite);
+				importer.FileIDToRecycleName_AssetDictionary_Int64_Utf8String.Add(exportID, sprite.Name);
 			}
-			else if (importer.Has_FileIDToRecycleName_AssetDictionary_Int32_Utf8String())
+		}
+		else if (importer.Has_FileIDToRecycleName_AssetDictionary_Int32_Utf8String())
+		{
+			foreach (ISprite sprite in textureSpriteInformation.Keys)
 			{
-				foreach (ISprite sprite in textureSpriteInformation.Keys)
-				{
-					long exportID = GetExportID(container, sprite);
-					importer.FileIDToRecycleName_AssetDictionary_Int32_Utf8String.Add((int)exportID, sprite.Name);
-				}
+				long exportID = GetExportID(container, sprite);
+				importer.FileIDToRecycleName_AssetDictionary_Int32_Utf8String.Add((int)exportID, sprite.Name);
 			}
 		}
 	}
 
-	/// <summary>
-	/// If exportSprites is false, we do not generate sprite sheet into texture importer,
-	/// yet we still need the sprites to properly set other texture importer settings.
-	/// </summary>
 	private readonly bool m_exportSprites;
 	private readonly bool m_convert = true;
 	private uint m_nextExportID = 0;
