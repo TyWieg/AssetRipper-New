@@ -1,4 +1,9 @@
-﻿using AssetRipper.Assets.Generics;
+using AsmResolver.DotNet;
+using AsmResolver.DotNet.Signatures;
+using AssetRipper.Assets.Generics;
+using AssetRipper.Primitives;
+using System;
+using System.Collections.Generic;
 
 namespace AssetRipper.AssemblyDumper;
 
@@ -6,8 +11,8 @@ internal static class GenericTypeResolver
 {
 	public static GenericInstanceTypeSignature ResolveDictionaryType(UniversalNode node, UnityVersion version)
 	{
-		UniversalNode pairNode = node.SubNodes![0] //Array
-			.SubNodes![1]; //Pair
+		UniversalNode pairNode = node.SubNodes![0]
+			.SubNodes![1];
 
 		GenericInstanceTypeSignature genericKvp = ResolvePairType(pairNode, version);
 
@@ -60,7 +65,6 @@ internal static class GenericTypeResolver
 			throw new Exception("Arrays not supported in pairs/dictionaries");
 		}
 
-		//Construct a KeyValuePair
 		ITypeDefOrRef kvpType = SharedState.Instance.Importer.ImportType(typeof(AssetPair<,>));
 		GenericInstanceTypeSignature genericKvp = kvpType.MakeGenericInstanceType(firstType, secondType);
 		return genericKvp;
@@ -76,6 +80,7 @@ internal static class GenericTypeResolver
 			NodeType.TypelessData => SharedState.Instance.Importer.UInt8.MakeSzArrayType(),
 			NodeType.Array => ResolveArrayType(node, version),
 			NodeType.Type => SharedState.Instance.SubclassGroups[node.TypeName].GetTypeForVersion(version).ToTypeSignature(),
+			NodeType.ManagedReference => SharedState.Instance.Importer.Object,
 			_ => node.NodeType.ToPrimitiveTypeSignature(),
 		};
 	}
