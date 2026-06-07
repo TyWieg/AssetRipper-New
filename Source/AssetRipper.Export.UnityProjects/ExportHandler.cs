@@ -1,4 +1,4 @@
-﻿using AssetRipper.Assets.Bundles;
+using AssetRipper.Assets.Bundles;
 using AssetRipper.Export.Configuration;
 using AssetRipper.Export.UnityProjects.PathIdMapping;
 using AssetRipper.Export.UnityProjects.Project;
@@ -15,6 +15,10 @@ using AssetRipper.Processing.Prefabs;
 using AssetRipper.Processing.Scenes;
 using AssetRipper.Processing.ScriptableObject;
 using AssetRipper.Processing.Textures;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 
 namespace AssetRipper.Export.UnityProjects;
 
@@ -85,8 +89,7 @@ public class ExportHandler
 		yield return new AnimatorControllerProcessor();
 		yield return new AudioMixerProcessor();
 		yield return new EditorFormatProcessor(Settings.ProcessingSettings.BundledAssetsExportMode);
-		//Static mesh separation goes here
-		yield return new LightingDataProcessor();//Needs to be after static mesh separation
+		yield return new LightingDataProcessor();
 		yield return new PrefabProcessor();
 		yield return new SpriteProcessor();
 		yield return new ScriptableObjectProcessor();
@@ -106,6 +109,7 @@ public class ExportHandler
 		BeforeExport(projectExporter);
 		projectExporter.DoFinalOverrides(Settings);
 		projectExporter.Export(gameData.GameBundle, Settings, fileSystem);
+		Project.UnityPatches.ApplyBuiltinEditorScripts(outputPath, fileSystem);
 
 		Logger.Info(LogCategory.Export, "Finished exporting assets");
 
@@ -137,6 +141,7 @@ public class ExportHandler
 		yield return new StreamingAssetsPostExporter();
 		yield return new DllPostExporter();
 		yield return new PathIdMapExporter();
+		yield return new ScriptReferenceRelinkerPostExporter();
 	}
 
 	public GameData LoadAndProcess(IReadOnlyList<string> paths, FileSystem fileSystem)
