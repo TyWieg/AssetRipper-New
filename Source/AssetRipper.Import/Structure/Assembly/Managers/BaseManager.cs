@@ -1,10 +1,15 @@
-﻿using AsmResolver.DotNet;
+using AsmResolver.DotNet;
 using AsmResolver.DotNet.Builder;
 using AsmResolver.DotNet.Signatures;
 using AsmResolver.PE.Builder;
 using AssetRipper.Import.Structure.Platforms;
 using AssetRipper.IO.Files;
 using AssetRipper.SerializationLogic;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using System.Linq;
 
 namespace AssetRipper.Import.Structure.Assembly.Managers;
 
@@ -210,7 +215,7 @@ public partial class BaseManager : IAssemblyManager
 			}
 
 			if (typeCache.TryGetValue(type, out SerializableType? monoType)
-				|| fieldSerializer.TryCreateSerializableType(type, typeCache, out monoType, out failureReason))
+				|| fieldSerializer.TryCreateSerializableTypeForMonoBehaviour(type, typeCache, out monoType, out failureReason))
 			{
 				scriptType = monoType;
 				failureReason = null;
