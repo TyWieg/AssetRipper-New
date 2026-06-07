@@ -139,6 +139,8 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 		using System.Text.RegularExpressions;
 		using System.Threading.Tasks;
 		using UnityEditor;
+		using UnityEditor.AddressableAssets;
+		using UnityEditor.AddressableAssets.Settings;
 		using UnityEngine;
 
 		namespace AssetRipperPatches
@@ -147,8 +149,6 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 			{
 				private const string MapRelativePath = "Assets/Editor/AssetRipperPatches/ScriptRelinkMap.tsv";
 				private const long MonoScriptFileId = 11500000;
-				
-				// Improved Regex matches spaces, missing 'type:' tags, and custom format variants
 				private static readonly Regex PPtrReferenceRegex = new Regex(@"\{fileID:\s*(?<fileID>-?\d+)\s*,\s*guid:\s*(?<guid>[0-9a-fA-F]{32})\s*(?:,\s*type:\s*(?<type>\d+)\s*)?\}", RegexOptions.Compiled);
 				private static bool EnableAutoRelink = true;
 				private static bool VerboseLogging = true;
@@ -165,6 +165,7 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 				private static void RelinkFromMenu()
 				{
 					Relink(true);
+					RebuildAddressableGroups(true);
 				}
 
 				[MenuItem("Tools/AssetRipper/Recover Missing Meta Files")]
@@ -179,6 +180,12 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 					DiagnoseUnresolvedScripts();
 				}
 
+				[MenuItem("Tools/AssetRipper/Reconstruct Addressables Groups")]
+				private static void ReconstructAddressablesFromMenu()
+				{
+					RebuildAddressableGroups(true);
+				}
+
 				private static void TryAutoRelink()
 				{
 					if (EditorApplication.isCompiling || EditorApplication.isUpdating)
@@ -188,6 +195,7 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 					}
 					RecoverMissingMetaFiles(false);
 					Relink(false);
+					RebuildAddressableGroups(false);
 				}
 
 				private static void Relink(bool verbose)
@@ -200,7 +208,7 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 					}
 					Dictionary<string, string> sourceMap = LoadSourceMap(mapPath);
 					if (sourceMap.Count == 0) return;
-					if (verbose || VerboseLogging) Debug.Log("AssetRipper: Starting high-performance reference relinking...");
+					if (verbose || VerboseLogging) Debug.Log("AssetRipper: Starting reference relinking...");
 					Dictionary<string, (string Guid, long FileID)> installedScripts = BuildInstalledScriptMap();
 					
 					int changedFiles = 0;
@@ -361,6 +369,124 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 					else if (verbose)
 					{
 						Debug.Log("AssetRipper: No missing .meta files detected.");
+					}
+				}
+
+				private static void RebuildAddressableGroups(bool verbose)
+				{
+					string catalogPath = "Assets/StreamingAssets/aa/catalog.json";
+					string catalogBinPath = "Assets/StreamingAssets/aa/catalog.bin";
+					List<string> internalIds = new List<string>();
+
+					if (File.Exists(catalogPath))
+					{
+						try
+						{
+							string json = File.ReadAllText(catalogPath);
+							if (!string.IsNullOrEmpty(json))
+							{
+								int startIdIndex = json.IndexOf("\"m_InternalIds\"");
+								if (startIdIndex >= 0)
+								{
+									int openBracket = json.IndexOf('[', startIdIndex);
+									int closeBracket = json.IndexOf(']', openBracket);
+									if (openBracket >= 0 && closeBracket >= 0)
+									{
+										string rawArray = json.Substring(openBracket + 1, closeBracket - openBracket - 1);
+										string[] items = rawArray.Split(',');
+										foreach (var item in items)
+										{
+											internalIds.Add(item.Trim('\"', '\\', ' ', '\r', '\n').Replace("\\\\", "/").Replace("\\", "/"));
+										}
+									}
+								}
+							}
+						}
+						catch {}
+					}
+					else if (File.Exists(catalogBinPath))
+					{
+						try
+						{
+							byte[] binData = File.ReadAllBytes(catalogBinPath);
+							int index = 0;
+							int len = binData.Length;
+							while (index < len)
+							{
+								if (index + 7 < len &&
+									binData[index] == 'A' &&
+									binData[index + 1] == 's' &&
+									binData[index + 2] == 's' &&
+									binData[index + 3] == 'e' &&
+									binData[index + 4] == 't' &&
+									binData[index + 5] == 's' &&
+									binData[index + 6] == '/')
+								{
+									int start = index;
+									while (index < len && binData[index] >= 32 && binData[index] <= 126)
+									{
+										index++;
+									}
+									if (index > start)
+									{
+										string path = Encoding.ASCII.GetString(binData, start, index - start);
+										internalIds.Add(path);
+									}
+								}
+								else
+								{
+									index++;
+								}
+							}
+						}
+						catch {}
+					}
+
+					if (internalIds.Count == 0)
+					{
+						if (verbose) Debug.LogWarning("AssetRipper: Addressable catalog data not found or failed to parse.");
+						return;
+					}
+
+					AddressableAssetSettings settings = AddressableAssetSettingsDefaultObject.Settings;
+					if (settings == null)
+					{
+						if (verbose) Debug.LogWarning("AssetRipper: Addressables must be initialized in this project first (Window -> Asset Management -> Addressables -> Groups).");
+						return;
+					}
+
+					try
+					{
+						int registered = 0;
+						AddressableAssetGroup defaultGroup = settings.DefaultGroup;
+
+						foreach (string cleanPath in internalIds)
+						{
+							if (cleanPath.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase))
+							{
+								string guid = AssetDatabase.AssetPathToGUID(cleanPath);
+								if (!string.IsNullOrEmpty(guid))
+								{
+									AddressableAssetEntry entry = settings.CreateOrMoveEntry(guid, defaultGroup, false, false);
+									if (entry != null)
+									{
+										entry.address = cleanPath;
+										registered++;
+									}
+								}
+							}
+						}
+
+						if (registered > 0)
+						{
+							settings.SetDirty(AddressableAssetSettings.ModificationEvent.EntryMoved, null, true, true);
+							AssetDatabase.SaveAssets();
+							Debug.Log($"AssetRipper successfully reconstructed and registered {registered} Addressable assets inside the project groups.");
+						}
+					}
+					catch (Exception ex)
+					{
+						Debug.LogError($"AssetRipper: Failed to reconstruct Addressables from catalog: {ex.Message}");
 					}
 				}
 
