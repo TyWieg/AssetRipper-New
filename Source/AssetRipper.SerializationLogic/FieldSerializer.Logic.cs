@@ -1,35 +1,23 @@
 using AsmResolver.PE.DotNet.Metadata.Tables;
 using AssetRipper.Primitives;
 using AssetRipper.SerializationLogic.Extensions;
+using AsmResolver.DotNet;
+using AsmResolver.DotNet.Signatures;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 
 namespace AssetRipper.SerializationLogic;
 
-public readonly partial struct FieldSerializer(UnityVersion version)
+public readonly partial struct FieldSerializer
 {
-	/// <summary>
-	/// Not sure about the exact version boundary, structs are supposedly only serializable on 4.5.0 and greater.
-	/// </summary>
 	private bool IsStructSerializable { get; } = version.GreaterThanOrEquals(4, 5);
 	private bool IsInt8Serializable => IsInt16Serializable;
-	/// <summary>
-	/// Not sure about the exact version boundary, but int8, int16, uint16, and uint32 were added around 5.0.0.
-	/// </summary>
-	/// <remarks>
-	/// <see href="https://github.com/AssetRipper/AssetRipper/issues/1851"/>
-	/// </remarks>
 	private bool IsInt16Serializable { get; } = version.GreaterThanOrEquals(5);
 	private bool IsUInt32Serializable => IsInt16Serializable;
 	private bool IsCharSerializable => IsInt64Serializable;
-	/// <summary>
-	/// Not sure about the exact version boundary, but online references suggest that 2017 was the first version to support this.
-	/// </summary>
-	/// <remarks>
-	/// <see href="https://github.com/AssetRipper/AssetRipper/issues/647"/>
-	/// </remarks>
 	private bool IsInt64Serializable { get; } = version.GreaterThanOrEquals(2017);
-	/// <summary>
-	/// Prior to the first alpha of 2020, System.Collections.Generic.List`1 and UnityEngine.ExposedReference`1 were the only supported generic types.
-	/// </summary>
 	private bool IsGenericInstanceSerializable => version.GreaterThanOrEquals(2020);
 
 	private bool WillUnitySerialize(FieldDefinition fieldDefinition, TypeSignature fieldType)
@@ -39,13 +27,11 @@ public readonly partial struct FieldSerializer(UnityVersion version)
 			return false;
 		}
 
-		//skip static, const and NotSerialized fields before even checking the type
 		if (fieldDefinition.IsStatic || fieldDefinition.IsConst() || fieldDefinition.IsNotSerialized || fieldDefinition.IsInitOnly)
 		{
 			return false;
 		}
 
-		// The field must have correct visibility/decoration to be serialized.
 		if (!fieldDefinition.IsPublic &&
 			!ShouldHaveHadAllFieldsPublic(fieldDefinition) &&
 			!fieldDefinition.HasSerializeFieldAttribute() &&
@@ -54,8 +40,6 @@ public readonly partial struct FieldSerializer(UnityVersion version)
 			return false;
 		}
 
-		// Don't try to resolve types that come from Windows assembly,
-		// as serialization weaver will fail to resolve that (due to it being in platform specific SDKs)
 		if (ShouldNotTryToResolve(fieldDefinition.Signature!.FieldType))
 		{
 			return false;
@@ -65,11 +49,6 @@ public readonly partial struct FieldSerializer(UnityVersion version)
 		{
 			return true;
 		}
-
-		// Resolving types is more complex and slower than checking their names or attributes,
-		// thus keep those checks below
-
-		//the type of the field must be serializable in the first place.
 
 		if (fieldType is CustomModifierTypeSignature customModifierType)
 		{
@@ -134,7 +113,6 @@ public readonly partial struct FieldSerializer(UnityVersion version)
 	{
 		if (typeReference is TypeDefinition)
 		{
-			//Early-out if we're already resolved.
 			return false;
 		}
 
@@ -151,10 +129,7 @@ public readonly partial struct FieldSerializer(UnityVersion version)
 		}
 
 		try
-		{   // This will throw an exception if typereference thinks it's referencing a .dll,
-			// but actually there's .winmd file in the current directory. RRW will fix this
-			// at a later step, so we will not try to resolve this type. This is OK, as any
-			// type defined in a winmd cannot be serialized.
+		{
 			typeReference.Resolve();
 		}
 		catch
@@ -174,7 +149,6 @@ public readonly partial struct FieldSerializer(UnityVersion version)
 
 		if (typeReference.IsEnum())
 		{
-			// Enums are serializable as long as their underlying type is serializable
 			TypeDefinition typeDefinition = typeReference.CheckedResolve();
 			CorLibTypeSignature underlyingType = (CorLibTypeSignature)typeDefinition.GetEnumUnderlyingType()!;
 			return IsSerializablePrimitive(underlyingType);
@@ -277,13 +251,11 @@ public readonly partial struct FieldSerializer(UnityVersion version)
 			return true;
 		}
 
-		//MB and SO are not serializable
 		if (typeDeclaration is { Namespace: EngineTypePredicates.UnityEngineNamespace, Name: EngineTypePredicates.MonoBehaviour or EngineTypePredicates.ScriptableObject })
 		{
 			return true;
 		}
 
-		//Check namespace
 		return typeDeclaration.Namespace == "System" || (typeDeclaration.Namespace?.StartsWith("System.", StringComparison.Ordinal) ?? false);
 	}
 
@@ -308,16 +280,9 @@ public readonly partial struct FieldSerializer(UnityVersion version)
 
 		bool isSerializable = resolvedTypeDeclaration.IsSerializable;
 
-		//If serializable, also check we're not abstract
 		isSerializable &= !resolvedTypeDeclaration.IsAbstract;
-
-		//If serializable, also check we're not an interface
 		isSerializable &= !resolvedTypeDeclaration.IsInterface;
-
-		//If serializable, also check we're not compiler generated
 		isSerializable &= !resolvedTypeDeclaration.IsCompilerGenerated();
-
-		//If serializable, also check we're not a generic instance
 		isSerializable &= IsGenericInstanceSerializable || typeDeclaration.ToTypeSignature() is not GenericInstanceTypeSignature;
 
 		if (typeDeclaration.IsValueType)
@@ -325,7 +290,6 @@ public readonly partial struct FieldSerializer(UnityVersion version)
 			return isSerializable && IsStructSerializable;
 		}
 
-		//Reference types can be serializable, or they can be MB/SO.
 		return isSerializable || resolvedTypeDeclaration.InheritsFromMonoBehaviour() || resolvedTypeDeclaration.InheritsFromScriptableObject();
 	}
 }
