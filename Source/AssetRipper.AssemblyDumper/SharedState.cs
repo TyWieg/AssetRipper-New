@@ -1,8 +1,15 @@
-﻿using AsmResolver.DotNet.Cloning;
+using AsmResolver.DotNet;
+using AsmResolver.DotNet.Cloning;
+using AsmResolver.DotNet.Signatures;
 using AssetRipper.AssemblyDumper.Attributes;
 using AssetRipper.AssemblyDumper.Methods;
 using AssetRipper.AssemblyDumper.Utils;
 using AssetRipper.DocExtraction.DataStructures;
+using UnityEngine;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 
 namespace AssetRipper.AssemblyDumper;
 
@@ -27,21 +34,9 @@ internal sealed class SharedState : AssemblyBuilder
 	public static SharedState Instance => _instance ?? throw new NullReferenceException("ShareState.Instance not initialized");
 
 	public UnityVersion MinVersion { get; }
-	/// <summary>
-	/// The minimum version in <see cref="SourceVersions"/>.
-	/// </summary>
-	/// <remarks>
-	/// This is used for versions without stripping, such as enums.
-	/// </remarks>
 	public UnityVersion MinSourceVersion => SourceVersions[0];
 	public UnityVersion MaxVersion { get; }
 	public UnityVersion[] SourceVersions { get; }
-	/// <summary>
-	/// The processed type tree data
-	/// </summary>
-	/// <remarks>
-	/// This is different from the original type tree data. In particular, it removes unnecessary types and moves versions to the inferred boundaries.
-	/// </remarks>
 	public byte[] TpkData { get; }
 	public UniversalCommonString CommonString { get; }
 	public HistoryFile HistoryFile { get; }
@@ -64,6 +59,7 @@ internal sealed class SharedState : AssemblyBuilder
 	public MethodDefinition NullableAttributeConstructorByte { get; }
 	public MethodDefinition NullableAttributeConstructorByteArray { get; }
 	public MethodDefinition NullableContextAttributeConstructor { get; }
+	public IMethodDefOrRef SerializeReferenceConstructor { get; }
 	public TypeDefinition PrivateImplementationDetails { get; }
 
 	private SharedState(
@@ -79,7 +75,6 @@ internal sealed class SharedState : AssemblyBuilder
 		TpkData = tpkData;
 		HistoryFile = HistoryFile.FromFile("consolidated.json");
 
-		//input array is sequentially ordered
 		MinVersion = sourceVersions[0].StripType();
 		MaxVersion = sourceVersions[sourceVersions.Length - 1];
 
@@ -94,6 +89,8 @@ internal sealed class SharedState : AssemblyBuilder
 			.Single(m => m.IsConstructor && m.Parameters.Count == 1 && m.Parameters[0].ParameterType is CorLibTypeSignature);
 		NullableAttributeConstructorByteArray = nullableAttributeType.Methods
 			.Single(m => m.IsConstructor && m.Parameters.Count == 1 && m.Parameters[0].ParameterType is SzArrayTypeSignature);
+
+		SerializeReferenceConstructor = Importer.ImportConstructor<SerializeReference>(0);
 
 		PrivateImplementationDetails = new TypeDefinition(null, "<PrivateImplementationDetails>", TypeAttributes.NotPublic | TypeAttributes.AutoLayout | TypeAttributes.AnsiClass | TypeAttributes.Sealed);
 		Module.TopLevelTypes.Add(PrivateImplementationDetails);
@@ -119,13 +116,14 @@ internal sealed class SharedState : AssemblyBuilder
 		AddLocalReferenceModule("AssetRipper.IO.Files");
 		AddLocalReferenceModule("AssetRipper.Numerics");
 		AddLocalReferenceModule("AssetRipper.Primitives");
+		AddLocalReferenceModule("UnityEngine");
 		AddSystemReferenceModule("System.Runtime");
 		AddSystemReferenceModule("System.Numerics.Vectors");
 		AddSystemReferenceModule("System.Linq");
 		AddSystemReferenceModule("System.Collections");
 		AddSystemReferenceModule("System.Text.Json");
 		AddSystemReferenceModule("System.Threading");
-		AddLocalReferenceModule("AssetRipper.AssemblyDumper");//needed for member cloning
+		AddLocalReferenceModule("AssetRipper.AssemblyDumper");
 	}
 
 	private void AddLocalReferenceModule(string name)
@@ -195,7 +193,7 @@ internal sealed class SharedState : AssemblyBuilder
 	{
 		if (!InjectedHelperTypes.TryGetValue(type, out TypeDefinition? helperType))
 		{
-			MemberCloner cloner = new MemberCloner(Module);
+			MemberCloner cloner = new(Module);
 			cloner.Include(Importer.LookupType(type) ?? throw new NullReferenceException(type.FullName), true);
 			MemberCloneResult result = cloner.Clone();
 			helperType = result.ClonedTopLevelTypes.Single();
