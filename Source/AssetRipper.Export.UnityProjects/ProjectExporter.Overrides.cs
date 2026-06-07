@@ -1,4 +1,8 @@
-﻿using AssetRipper.Assets;
+﻿// Module: AssetRipper.Export.UnityProjects
+// Unity Version Context: Unity 2020.2 to 6000.5+
+// Performance Constraint: Conditional export routing based on user configuration settings
+
+using AssetRipper.Assets;
 using AssetRipper.Export.Configuration;
 using AssetRipper.Export.UnityProjects.AnimatorControllers;
 using AssetRipper.Export.UnityProjects.Audio;
@@ -126,10 +130,19 @@ partial class ProjectExporter
 		//Texture Array exporters
 		if (settings.Version.GreaterThanOrEquals(2020, 2))
 		{
-			TextureArrayAssetExporter textureArrayExporter = new(settings);
-			OverrideExporter<ICubemapArray>(textureArrayExporter);
-			OverrideExporter<ITexture2DArray>(textureArrayExporter);
-			OverrideExporter<ITexture3D>(textureArrayExporter);
+			if (settings.ExportSettings.ExportTextureArraysAsAsset)
+			{
+				// By not overriding ICubemapArray, ITexture2DArray, or ITexture3D,
+				// they fall back losslessly onto YamlStreamedAssetExporter as intended.
+			}
+			else
+			{
+				// Fall back to classic flat image/bitmap conversion
+				TextureArrayAssetExporter textureArrayExporter = new(settings);
+				OverrideExporter<ICubemapArray>(textureArrayExporter);
+				OverrideExporter<ITexture2DArray>(textureArrayExporter);
+				OverrideExporter<ITexture3D>(textureArrayExporter);
+			}
 		}
 
 		//Font exporter

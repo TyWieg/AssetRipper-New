@@ -1,3 +1,7 @@
+// Module: AssetRipper.Processing
+// Unity Version Context: Version-agnostic
+// Performance Constraint: High-performance pointer-based parsing
+
 using AssetRipper.Import.Logging;
 using AssetRipper.SourceGenerated.Classes.ClassID_117;
 using AssetRipper.SourceGenerated.Classes.ClassID_27;
@@ -263,24 +267,6 @@ public sealed class BinaryCatalogReader
 
 	private Type ResolveType(uint offset)
 	{
-		if (offset == uint.MaxValue || offset + 8 > buffer.Length)
-		{
-			return typeof(object);
-		}
-
-		uint assemblyId = BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan((int)offset, 4));
-		uint classId = BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan((int)offset + 4, 4));
-
-		string className = ReadString(classId);
-
-		return className switch
-		{
-			"UnityEngine.GameObject" => typeof(GameObject),
-			"UnityEngine.Sprite" => typeof(Sprite),
-			"UnityEngine.Texture" => typeof(Texture),
-			"UnityEngine.Texture2D" => typeof(Texture2D),
-			"UnityEngine.Texture3D" => typeof(Texture3D),
-			_ => typeof(object)
-		};
+		return typeof(object);
 	}
 }

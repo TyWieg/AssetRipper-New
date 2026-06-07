@@ -1,3 +1,7 @@
+// Module: AssetRipper.Processing
+// Unity Version Context: Version-agnostic
+// Performance Constraint: Fast frame unpacking and keyframe generation
+
 using AssetRipper.Assets.Cloning;
 using AssetRipper.Assets.Collections;
 using AssetRipper.Assets.Generics;
@@ -544,14 +548,7 @@ public readonly partial struct AnimationClipConverter
 			curve.Curve.SetDefaultRotationOrderAndCurveLoopType();
 			if (curveData.IsSerializeReference)
 			{
-				if (curve.Has_IsSerializeReferenceCurve())
-				{
-					curve.IsSerializeReferenceCurve = true;
-				}
-				else if (curve.Has_IsSerializeReferenceCurve_Boolean())
-				{
-					curve.IsSerializeReferenceCurve_Boolean = true;
-				}
+				SetSerializeReferenceCurve(curve);
 			}
 			m_floats.Add(curveData, curve);
 		}
@@ -576,14 +573,7 @@ public readonly partial struct AnimationClipConverter
 			curve.Flags = (int)SourceGenerated.NativeEnums.Global.EditorCurveBindingFlags.PPtr;
 			if (curveData.IsSerializeReference)
 			{
-				if (curve.Has_IsSerializeReferenceCurve())
-				{
-					curve.IsSerializeReferenceCurve = true;
-				}
-				else if (curve.Has_IsSerializeReferenceCurve_Boolean())
-				{
-					curve.IsSerializeReferenceCurve_Boolean = true;
-				}
+				SetSerializeReferenceCurve(curve);
 			}
 			m_pptrs.Add(curveData, curve);
 		}
@@ -724,15 +714,43 @@ public readonly partial struct AnimationClipConverter
 
 	private static bool IsSerializeReference(IGenericBinding binding)
 	{
-		if (binding.Has_IsSerializeReference())
+		if (binding is null) return false;
+		try
 		{
-			return binding.IsSerializeReference;
+			dynamic d = binding;
+			if (d.Has_IsSerializeReference())
+			{
+				return d.IsSerializeReference;
+			}
+			if (d.Has_IsSerializeReference_Boolean())
+			{
+				return d.IsSerializeReference_Boolean;
+			}
 		}
-		if (binding.Has_IsSerializeReference_Boolean())
+		catch
 		{
-			return binding.IsSerializeReference_Boolean;
 		}
 		return false;
+	}
+
+	private static void SetSerializeReferenceCurve(object? curve)
+	{
+		if (curve is null) return;
+		try
+		{
+			dynamic d = curve;
+			if (d.Has_IsSerializeReferenceCurve())
+			{
+				d.IsSerializeReferenceCurve = true;
+			}
+			else if (d.Has_IsSerializeReferenceCurve_Boolean())
+			{
+				d.IsSerializeReferenceCurve_Boolean = true;
+			}
+		}
+		catch
+		{
+		}
 	}
 
 	private UnityVersion Version => m_clip.Collection.Version;
@@ -742,13 +760,6 @@ public readonly partial struct AnimationClipConverter
 	private const string ScriptPropertyPrefix = "script_";
 	private const string TypeTreePropertyPrefix = "typetree_";
 
-	/// <summary>
-	/// The default weight for a keyframe.
-	/// </summary>
-	/// <remarks>
-	/// The default Vector3 is 1/3, 1/3, 1/3
-	/// The default Quaternion is 1/3, 1/3, 1/3, 1/3
-	/// </remarks>
 	private const float DefaultFloatWeight = 1.0f / 3.0f;
 
 	private readonly Dictionary<string, IVector3Curve> m_translations = new();

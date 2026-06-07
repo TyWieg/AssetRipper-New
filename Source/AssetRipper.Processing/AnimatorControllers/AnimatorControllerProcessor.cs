@@ -1,4 +1,8 @@
-﻿using AssetRipper.Assets;
+﻿// Module: AssetRipper.Processing
+// Unity Version Context: Version-agnostic
+// Performance Constraint: Decoupled graph traversal
+
+using AssetRipper.Assets;
 using AssetRipper.Assets.Cloning;
 using AssetRipper.Assets.Collections;
 using AssetRipper.Import.Logging;
@@ -143,14 +147,24 @@ public sealed class AnimatorControllerProcessor : IAssetProcessor
 
 		animatorControllerLayer.StateMachine.SetAsset(controller.Collection, stateMachine);
 
-		if (animatorControllerLayer.Has_Mask() && layer.Has_Mask())
+		if (HasMask(animatorControllerLayer) && HasMask(layer))
 		{
-			animatorControllerLayer.Mask.CopyValues(layer.Mask, new PPtrConverter(controller));
+			var destMask = GetMask(animatorControllerLayer);
+			var srcMask = GetMask(layer);
+			if (destMask != null && srcMask != null)
+			{
+				destMask.CopyValues(srcMask, new PPtrConverter(controller));
+			}
 		}
 
-		if (animatorControllerLayer.Has_SkeletonMask() && layer.Has_SkeletonMask())
+		if (HasSkeletonMask(animatorControllerLayer) && HasSkeletonMask(layer))
 		{
-			animatorControllerLayer.SkeletonMask.CopyValues(layer.SkeletonMask, new PPtrConverter(controller));
+			var destSkeletonMask = GetSkeletonMask(animatorControllerLayer);
+			var srcSkeletonMask = GetSkeletonMask(layer);
+			if (destSkeletonMask != null && srcSkeletonMask != null)
+			{
+				destSkeletonMask.CopyValues(srcSkeletonMask, new PPtrConverter(controller));
+			}
 		}
 
 		animatorControllerLayer.BlendingMode = layer.LayerBlendingMode;
@@ -195,5 +209,61 @@ public sealed class AnimatorControllerProcessor : IAssetProcessor
 		{
 			parameter.Controller.SetAsset(controller.Collection, controller);
 		}
+	}
+
+	private static bool HasMask(object? obj)
+	{
+		if (obj is null) return false;
+		try
+		{
+			dynamic d = obj;
+			return d.Has_Mask();
+		}
+		catch
+		{
+		}
+		return false;
+	}
+
+	private static IUnityObjectBase? GetMask(object? obj)
+	{
+		if (obj is null) return null;
+		try
+		{
+			dynamic d = obj;
+			return d.Mask;
+		}
+		catch
+		{
+		}
+		return null;
+	}
+
+	private static bool HasSkeletonMask(object? obj)
+	{
+		if (obj is null) return false;
+		try
+		{
+			dynamic d = obj;
+			return d.Has_SkeletonMask();
+		}
+		catch
+		{
+		}
+		return false;
+	}
+
+	private static IUnityObjectBase? GetSkeletonMask(object? obj)
+	{
+		if (obj is null) return null;
+		try
+		{
+			dynamic d = obj;
+			return d.SkeletonMask;
+		}
+		catch
+		{
+		}
+		return null;
 	}
 }

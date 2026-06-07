@@ -1,14 +1,20 @@
-﻿using AssetRipper.Assets;
+﻿// Module: AssetRipper.Export.UnityProjects
+// Unity Version Context: Version-agnostic
+// Performance Constraint: Low-allocation parsing
+
+using AssetRipper.Assets;
 using AssetRipper.Assets.Metadata;
 using AssetRipper.SourceGenerated.Subclasses.SceneObjectIdentifier;
 using AssetRipper.Yaml;
 using System;
+using System.Collections.Generic;
 
 namespace AssetRipper.Export.UnityProjects.Project;
 
 public sealed class ProjectYamlWalker : YamlWalker
 {
 	private readonly IExportContainer container;
+	private readonly Stack<string> fieldStack = new();
 
 	public ProjectYamlWalker(IExportContainer container)
 	{
@@ -28,6 +34,41 @@ public sealed class ProjectYamlWalker : YamlWalker
 	{
 		CurrentAsset = asset;
 		return base.ExportYamlNode(asset);
+	}
+
+	public override bool EnterField(IUnityAssetBase asset, string name)
+	{
+		fieldStack.Push(name);
+		return base.EnterField(asset, name);
+	}
+
+	public override void ExitField(IUnityAssetBase asset, string name)
+	{
+		if (fieldStack.Count > 0)
+		{
+			fieldStack.Pop();
+		}
+		base.ExitField(asset, name);
+	}
+
+	public override void VisitPrimitive<T>(T value)
+	{
+		string currentField = fieldStack.Count > 0 ? fieldStack.Peek() : string.Empty;
+
+		if (!string.IsNullOrEmpty(currentField) && currentField.EndsWith("GUID", StringComparison.OrdinalIgnoreCase))
+		{
+			string? guidStr = value as string;
+			if (!string.IsNullOrEmpty(guidStr) && container is ProjectAssetContainer customContainer)
+			{
+				if (customContainer.TryGetTranslatedGuid(guidStr, out string? translatedGuid))
+				{
+					base.VisitPrimitive((T)(object)translatedGuid);
+					return;
+				}
+			}
+		}
+
+		base.VisitPrimitive(value);
 	}
 
 	public override bool EnterAsset(IUnityAssetBase asset)
@@ -70,32 +111,5 @@ public sealed class ProjectYamlWalker : YamlWalker
 			MetaPtr pointer = MetaPtr.CreateMissingReference(GetClassID(typeof(TAsset)), assetType);
 			return pointer.ExportYaml(container.ExportVersion);
 		}
-	}
-
-	public override void VisitPrimitive<T>(T value)
-	{
-		// Intercept and translate string-based AssetReference GUID fields inline
-		if (value is string originalGuidStr && originalGuidStr.Length == 32 && IsGuidField(CurrentFieldName))
-		{
-			if (container is ProjectAssetContainer projectContainer && projectContainer.TryGetTranslatedGuid(originalGuidStr, out string? translatedGuid))
-			{
-				base.VisitPrimitive((T)(object)translatedGuid);
-				return;
-			}
-		}
-
-		base.VisitPrimitive(value);
-	}
-
-	private static bool IsGuidField(string? fieldName)
-	{
-		if (fieldName == null)
-		{
-			return false;
-		}
-
-		return fieldName.EndsWith("GUID", StringComparison.OrdinalIgnoreCase) ||
-			   fieldName.EndsWith("Guid", StringComparison.OrdinalIgnoreCase) ||
-			   string.Equals(fieldName, "guid", StringComparison.OrdinalIgnoreCase);
 	}
 }

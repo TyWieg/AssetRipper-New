@@ -1,4 +1,8 @@
-﻿using AssetRipper.Import.Logging;
+﻿// Module: AssetRipper.Export
+// Unity Version Context: Version-agnostic
+// Performance Constraint: Low heap allocation config storage
+
+using AssetRipper.Import.Logging;
 
 namespace AssetRipper.Export.Configuration;
 
@@ -51,6 +55,11 @@ public sealed record class ExportSettings
 
 	public bool ExportUnreadableAssets { get; set; } = false;
 
+	/// <summary>
+	/// If true, ICubemapArray, ITexture2DArray, and ITexture3D will be exported losslessly as native Unity YAML .asset files.
+	/// </summary>
+	public bool ExportTextureArraysAsAsset { get; set; } = true;
+
 	public bool SaveSettingsToDisk { get; set; }
 
 	public string? LanguageCode { get; set; }
@@ -66,5 +75,6 @@ public sealed record class ExportSettings
 		Logger.Info(LogCategory.General, $"{nameof(SpriteExportMode)}: {SpriteExportMode}");
 		Logger.Info(LogCategory.General, $"{nameof(TextExportMode)}: {TextExportMode}");
 		Logger.Info(LogCategory.General, $"{nameof(ExportUnreadableAssets)}: {ExportUnreadableAssets}");
+		Logger.Info(LogCategory.General, $"{nameof(ExportTextureArraysAsAsset)}: {ExportTextureArraysAsAsset}");
 	}
 }

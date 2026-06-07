@@ -1,3 +1,7 @@
+// Module: AssetRipper.Export.UnityProjects
+// Unity Version Context: Version-agnostic
+// Performance Constraint: Low-allocation parsing
+
 using AssetRipper.Assets;
 using AssetRipper.Assets.Collections;
 using AssetRipper.Export.UnityProjects.Project;
@@ -7,7 +11,6 @@ using AssetRipper.Primitives;
 using AssetRipper.Processing.Scenes;
 using AssetRipper.SourceGenerated.Classes.ClassID_115;
 using AssetRipper.SourceGenerated.Classes.ClassID_141;
-using AssetRipper.SourceGenerated.Extensions;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -100,7 +103,7 @@ public class ProjectAssetContainer : IExportContainer
 		// Intercept IMonoScript references to apply inline pre-translation
 		if (asset is IMonoScript monoScript)
 		{
-			string assembly = NormalizeAssemblyName(monoScript.GetAssemblyNameFixed());
+			string assembly = NormalizeAssemblyName(AssetRipper.Import.Structure.Assembly.MonoScriptExtensions.GetAssemblyNameFixed(monoScript));
 			string @namespace = monoScript.Namespace.String;
 			string @class = monoScript.ClassName_R.String;
 
@@ -140,7 +143,7 @@ public class ProjectAssetContainer : IExportContainer
 
 	private void LoadInlineScriptMappings(string mapPath, IEnumerable<IUnityObjectBase> assets)
 	{
-		if (!File.Exists(mapPath))
+		if (!global::System.IO.File.Exists(mapPath))
 		{
 			return;
 		}
@@ -149,7 +152,7 @@ public class ProjectAssetContainer : IExportContainer
 		Dictionary<ScriptIdentity, IMonoScript> scriptLookup = new(ScriptIdentityComparer.Instance);
 		foreach (IMonoScript script in assets.OfType<IMonoScript>())
 		{
-			string assembly = NormalizeAssemblyName(script.GetAssemblyNameFixed());
+			string assembly = NormalizeAssemblyName(AssetRipper.Import.Structure.Assembly.MonoScriptExtensions.GetAssemblyNameFixed(script));
 			string @namespace = script.Namespace.String;
 			string @class = script.ClassName_R.String;
 			ScriptIdentity identity = new(assembly, @namespace, @class);
@@ -161,7 +164,7 @@ public class ProjectAssetContainer : IExportContainer
 
 		try
 		{
-			foreach (string rawLine in File.ReadLines(mapPath))
+			foreach (string rawLine in global::System.IO.File.ReadLines(mapPath))
 			{
 				string line = rawLine.Trim();
 				if (string.IsNullOrEmpty(line) || line.StartsWith('#'))
@@ -188,16 +191,21 @@ public class ProjectAssetContainer : IExportContainer
 					m_inlineScriptMappings[identity] = targetPtr;
 					m_guidTranslations[originalGuidStr] = targetPtr.GUID.ToString();
 				}
-				else if (UnityGuid.TryParse(originalGuidStr, out UnityGuid guid) && long.TryParse(fileIdStr, out long fileId))
+				else
 				{
-					m_inlineScriptMappings[identity] = new MetaPtr(fileId, guid, AssetType.Meta);
-					m_guidTranslations[originalGuidStr] = originalGuidStr;
+					long fileId = 0;
+					if (System.Guid.TryParse(originalGuidStr, out System.Guid sysGuid) && long.TryParse(fileIdStr, out fileId))
+					{
+						UnityGuid convertedGuid = new UnityGuid(sysGuid);
+						m_inlineScriptMappings[identity] = new MetaPtr(fileId, convertedGuid, AssetType.Meta);
+						m_guidTranslations[originalGuidStr] = originalGuidStr;
+					}
 				}
 			}
 		}
 		catch
 		{
-			// Fail-safe to fallback gracefully
+			// Fallback gracefully on parsing exceptions
 		}
 	}
 
