@@ -1,4 +1,10 @@
-﻿namespace AssetRipper.AssemblyDumper.Passes;
+using AsmResolver.DotNet;
+using AsmResolver.DotNet.Signatures;
+using AssetRipper.Primitives;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace AssetRipper.AssemblyDumper.Passes;
 
 public static class Pass015_AddFields
 {
@@ -24,7 +30,7 @@ public static class Pass015_AddFields
 	{
 		if (unityClass.EditorRootNode == null && unityClass.ReleaseRootNode == null)
 		{
-			return; //No fields.
+			return;
 		}
 
 		GetFieldNodeSets(unityClass, out List<UniversalNode> releaseOnly, out List<UniversalNode> editorOnly, out List<(UniversalNode, UniversalNode)> releaseAndEditor);
@@ -57,7 +63,6 @@ public static class Pass015_AddFields
 		Dictionary<string, UniversalNode> editorFields = editorNodes.ToDictionary(x => x.Name, x => x);
 
 		List<UniversalNode> releaseOnlyResult = releaseNodes.Where(node => !editorFields.ContainsKey(node.Name)).ToList();
-		//Need to use a result local field here becuase out parameters can't be used in lambda expressions
 		editorOnly = editorNodes.Where(node => !releaseFields.ContainsKey(node.Name)).ToList();
 
 		releaseAndEditor = releaseNodes.
@@ -82,9 +87,26 @@ public static class Pass015_AddFields
 
 	private static void AddFieldForNode(this TypeDefinition type, UniversalNode mainNode, TypeSignature fieldType)
 	{
-		FieldDefinition fieldDefinition = new FieldDefinition(mainNode.Name, FieldAttributes.Assembly, new FieldSignature(fieldType));
+		FieldDefinition fieldDefinition = new(mainNode.Name, FieldAttributes.Assembly, new FieldSignature(fieldType));
 		type.Fields.Add(fieldDefinition);
 		fieldDefinition.AddDebuggerBrowsableNeverAttribute();
+		if (IsManagedReference(mainNode))
+		{
+			fieldDefinition.AddCustomAttribute(SharedState.Instance.SerializeReferenceConstructor);
+		}
+	}
+
+	private static bool IsManagedReference(UniversalNode node)
+	{
+		if (node.NodeType == NodeType.ManagedReference)
+		{
+			return true;
+		}
+		if (node.NodeType == NodeType.Array && node.SubNodes.Count >= 2)
+		{
+			return IsManagedReference(node.SubNodes[1]);
+		}
+		return false;
 	}
 
 	private static bool IsFieldInBaseType(UniversalClass unityClass, string fieldName)
@@ -92,7 +114,6 @@ public static class Pass015_AddFields
 		UniversalClass? baseType = unityClass.BaseClass;
 		while (baseType is not null)
 		{
-
 			if (baseType.EditorRootNode?.SubNodes.Any(n => n.Name == fieldName) == true)
 			{
 				return true;
