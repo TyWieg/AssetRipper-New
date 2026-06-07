@@ -1,4 +1,8 @@
-﻿namespace AssetRipper.AssemblyDumper;
+using AsmResolver.DotNet;
+using AsmResolver.DotNet.Signatures;
+using System;
+
+namespace AssetRipper.AssemblyDumper;
 
 public enum NodeType
 {
@@ -21,6 +25,7 @@ public enum NodeType
 	Pair,
 	Map,
 	TypelessData,
+	ManagedReference,
 }
 
 public static class NodeTypeExtensions
@@ -42,6 +47,7 @@ public static class NodeTypeExtensions
 			NodeType.Single => nameof(Single),
 			NodeType.Double => nameof(Double),
 			NodeType.String => nameof(Utf8String),
+			NodeType.ManagedReference => nameof(Object),
 			_ => throw new NotSupportedException(type.ToString()),
 		};
 	}
@@ -61,7 +67,8 @@ public static class NodeTypeExtensions
 			NodeType.UInt64 or
 			NodeType.Single or
 			NodeType.Double or
-			NodeType.String;
+			NodeType.String or
+			NodeType.ManagedReference;
 	}
 
 	public static TypeSignature ToPrimitiveTypeSignature(this NodeType type)
@@ -81,6 +88,7 @@ public static class NodeTypeExtensions
 			NodeType.Single => SharedState.Instance.Importer.Single,
 			NodeType.Double => SharedState.Instance.Importer.Double,
 			NodeType.String => SharedState.Instance.Importer.ImportType<Utf8String>().ToTypeSignature(),
+			NodeType.ManagedReference => SharedState.Instance.Importer.Object,
 			_ => throw new NotSupportedException(type.ToString()),
 		};
 	}
