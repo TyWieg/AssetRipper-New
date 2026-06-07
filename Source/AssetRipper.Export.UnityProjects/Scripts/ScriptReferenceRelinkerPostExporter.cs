@@ -147,7 +147,9 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 			{
 				private const string MapRelativePath = "Assets/Editor/AssetRipperPatches/ScriptRelinkMap.tsv";
 				private const long MonoScriptFileId = 11500000;
-				private static readonly Regex PPtrReferenceRegex = new Regex(@"\{fileID:\s*(?<fileID>-?\d+),\s*guid:\s*(?<guid>[0-9a-fA-F]{32}),\s*type:\s*(?<type>\d+)\s*}", RegexOptions.Compiled);
+				
+				// Improved Regex matches spaces, missing 'type:' tags, and custom format variants
+				private static readonly Regex PPtrReferenceRegex = new Regex(@"\{fileID:\s*(?<fileID>-?\d+)\s*,\s*guid:\s*(?<guid>[0-9a-fA-F]{32})\s*(?:,\s*type:\s*(?<type>\d+)\s*)?\}", RegexOptions.Compiled);
 				private static bool EnableAutoRelink = true;
 				private static bool VerboseLogging = true;
 
@@ -199,7 +201,7 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 					Dictionary<string, string> sourceMap = LoadSourceMap(mapPath);
 					if (sourceMap.Count == 0) return;
 					if (verbose || VerboseLogging) Debug.Log("AssetRipper: Starting high-performance reference relinking...");
-					Dictionary<string, string> installedScripts = BuildInstalledScriptMap();
+					Dictionary<string, (string Guid, long FileID)> installedScripts = BuildInstalledScriptMap();
 					
 					int changedFiles = 0;
 					int changedReferences = 0;
@@ -213,7 +215,6 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 						string[] candidatePaths = EnumerateCandidateAssetPaths().ToArray();
 						float total = candidatePaths.Length;
 
-						// High-speed parallel scanning phase
 						ConcurrentBag<(string Path, string Text, int Replacements, int Skipped, int Unresolved)> modifiedFiles = new ConcurrentBag<(string, string, int, int, int)>();
 						
 						Parallel.ForEach(candidatePaths, assetPath =>
@@ -229,7 +230,6 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 							}
 						});
 
-						// Main-thread write phase
 						int fileIndex = 0;
 						foreach (var file in modifiedFiles)
 						{
@@ -373,7 +373,7 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 						return;
 					}
 					Dictionary<string, string> sourceMap = LoadSourceMap(mapPath);
-					Dictionary<string, string> installedScripts = BuildInstalledScriptMap();
+					Dictionary<string, (string Guid, long FileID)> installedScripts = BuildInstalledScriptMap();
 					HashSet<string> allIdentities = new HashSet<string>(sourceMap.Values);
 					List<string> missing = new List<string>();
 					List<string> found = new List<string>();
@@ -416,7 +416,7 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 				private static bool TryRelinkFileFast(
 					string assetPath,
 					Dictionary<string, string> sourceMap,
-					Dictionary<string, string> installedScripts,
+					Dictionary<string, (string Guid, long FileID)> installedScripts,
 					out string updatedText,
 					out int replacements,
 					out int skipped,
@@ -433,7 +433,6 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 					try { originalText = File.ReadAllText(fullPath); }
 					catch { return false; }
 
-					// Pre-filter check to prevent running expensive regex on unlinked files
 					if (!originalText.Contains("guid:") || !originalText.Contains("fileID:"))
 					{
 						return false;
@@ -456,7 +455,7 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 						{
 							return match.Value;
 						}
-						if (!installedScripts.TryGetValue(identityKey, out string installedGuid))
+						if (!installedScripts.TryGetValue(identityKey, out var targetScript))
 						{
 							localUnresolved++;
 							if (unresolvedIdentities != null)
@@ -465,17 +464,19 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 							}
 							return match.Value;
 						}
-						if (string.Equals(installedGuid, guid, StringComparison.OrdinalIgnoreCase)
-							&& fileId == MonoScriptFileId)
+						if (string.Equals(targetScript.Guid, guid, StringComparison.OrdinalIgnoreCase)
+							&& fileId == targetScript.FileID)
 						{
 							localSkipped++;
 							return match.Value;
 						}
 						localReplacements++;
+						
+						string typeValue = match.Groups["type"].Success ? match.Groups["type"].Value : "3";
 						return "{fileID: "
-							+ MonoScriptFileId.ToString(CultureInfo.InvariantCulture)
-							+ ", guid: " + installedGuid
-							+ ", type: " + match.Groups["type"].Value
+							+ targetScript.FileID.ToString(CultureInfo.InvariantCulture)
+							+ ", guid: " + targetScript.Guid
+							+ ", type: " + typeValue
 							+ "}";
 					});
 
@@ -530,15 +531,22 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 					return map;
 				}
 
-				private static Dictionary<string, string> BuildInstalledScriptMap()
+				private static Dictionary<string, (string Guid, long FileID)> BuildInstalledScriptMap()
 				{
-					Dictionary<string, string> installedScripts = new Dictionary<string, string>(StringComparer.Ordinal);
+					var installedScripts = new Dictionary<string, (string Guid, long FileID)>(StringComparer.Ordinal);
 					string[] guids = AssetDatabase.FindAssets("t:MonoScript");
 					foreach (string guid in guids)
 					{
 						string path = AssetDatabase.GUIDToAssetPath(guid);
 						MonoScript monoScript = AssetDatabase.LoadAssetAtPath<MonoScript>(path);
 						if (monoScript == null) continue;
+						
+						long fileId = MonoScriptFileId;
+						if (AssetDatabase.TryGetGUIDAndLocalFileIdentifier(monoScript, out string _, out long actualFileId))
+						{
+							fileId = actualFileId;
+						}
+
 						Type type = monoScript.GetClass();
 						if (type != null)
 						{
@@ -547,7 +555,7 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 							string key = MakeIdentityKey(assemblyName, fullTypeName);
 							if (!installedScripts.ContainsKey(key))
 							{
-								installedScripts[key] = guid.ToLowerInvariant();
+								installedScripts[key] = (guid.ToLowerInvariant(), fileId);
 							}
 						}
 						else
@@ -562,7 +570,7 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 							string key = MakeIdentityKey(inferredAssembly, fullTypeName);
 							if (!installedScripts.ContainsKey(key))
 							{
-								installedScripts[key] = guid.ToLowerInvariant();
+								installedScripts[key] = (guid.ToLowerInvariant(), fileId);
 							}
 						}
 					}
@@ -659,7 +667,9 @@ public sealed class ScriptReferenceRelinkerPostExporter : IPostExporter
 						"*.signal", "*.lighting", "*.flare",
 						"*.mixer", "*.renderTexture",
 						"*.shadervariants", "*.terrainlayer",
-						"*.fontsettings", "*.guiskin", "*.brush"
+						"*.fontsettings", "*.guiskin", "*.brush",
+						"*.physicMaterial", "*.physicsMaterial2D",
+						"*.spriteatlas", "*.scenetemplate"
 					};
 					if (Directory.Exists("Assets"))
 					{
